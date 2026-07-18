@@ -1,0 +1,61 @@
+/* ============================================================
+   print.css — A4 인쇄 (보고서·대장)
+   화면에서 .print-only는 숨기고, 인쇄 시 앱 UI를 숨긴다.
+   ============================================================ */
+
+.print-only { display: none; }
+
+@media print {
+  @page { size: A4; margin: 14mm 12mm; }
+
+  body { background: #fff; font-size: 11pt; }
+
+  /* 앱 UI 숨김 */
+  .sidebar, .topbar, .menu-toggle, .sidebar-backdrop,
+  .no-print, .toast-wrap, .modal-backdrop, .filters { display: none !important; }
+  .app { display: block; }
+  .main { display: block; }
+  .content { padding: 0; }
+  .card { border: none; box-shadow: none; }
+  .card-body, .card-pad { padding: 0; }
+
+  .print-only { display: block; }
+
+  /* 인쇄 헤더 (제목 + 결재란) */
+  .print-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8mm;
+  }
+  .print-title { font-size: 18pt; font-weight: 800; letter-spacing: 2px; }
+  .print-sub { font-size: 10pt; color: #444; margin-top: 2mm; }
+
+  /* 결재란 */
+  .approval { border-collapse: collapse; }
+  .approval th, .approval td {
+    border: 1px solid #333;
+    width: 22mm;
+    text-align: center;
+    font-size: 9pt;
+  }
+  .approval th { height: 7mm; background: #f0f0f0; font-weight: 600; }
+  .approval td { height: 16mm; }
+
+  /* 본문 표 */
+  .table th, .table td {
+    border: 1px solid #666;
+    padding: 2mm 2.5mm;
+    font-size: 10pt;
+  }
+  .table th { background: #f0f0f0; color: #000; }
+  .table tbody tr:hover { background: none; }
+  .table tr.overdue td { background: none; }
+
+  .badge { border: 1px solid #999; background: none !important; color: #000 !important; }
+
+  h2, h3 { page-break-after: avoid; }
+  tr, .report-site-block { page-break-inside: avoid; }
+
+  a { color: inherit; text-decoration: none; }
+}

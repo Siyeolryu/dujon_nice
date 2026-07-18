@@ -1,0 +1,220 @@
+/* ============================================================
+   base.css — 디자인 토큰 · reset · 앱 레이아웃
+   규칙: 모든 색·간격·크기는 여기 CSS 변수만 사용 (RULES.md §4)
+   ============================================================ */
+
+:root {
+  /* 브랜드 */
+  --c-primary: #1b3a5c;        /* 진남색 — 헤더·주요 버튼 */
+  --c-primary-hover: #14293f;
+  --c-primary-soft: #e8eef5;   /* 주요색 연한 배경 */
+  --c-accent: #2f80ed;         /* 링크·활성 상태 */
+
+  /* 중립 */
+  --c-bg: #f4f6f9;             /* 페이지 배경 */
+  --c-surface: #ffffff;        /* 카드·패널 */
+  --c-border: #dde3ea;
+  --c-text: #1f2937;
+  --c-text-sub: #6b7280;
+  --c-text-faint: #9ca3af;
+
+  /* 상태 */
+  --c-success: #1e8e3e;
+  --c-success-soft: #e6f4ea;
+  --c-warn: #d97706;
+  --c-warn-soft: #fef3e2;
+  --c-danger: #d93025;
+  --c-danger-soft: #fdecea;
+  --c-info: #2f80ed;
+  --c-info-soft: #e8f0fe;
+  --c-neutral-soft: #eef1f4;
+
+  /* 우선순위/유형 색 */
+  --c-pri-high: #d93025;
+  --c-pri-mid: #d97706;
+  --c-pri-low: #6b7280;
+  --c-ev-billing: #7b2ff2;     /* 기성청구 */
+  --c-ev-contract: #d93025;    /* 계약마감 */
+  --c-ev-meeting: #1e8e3e;     /* 회의 */
+  --c-ev-bid: #d97706;         /* 입찰 */
+  --c-ev-etc: #6b7280;         /* 기타 */
+
+  /* 타이포 */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+
+  /* 간격 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 형태 */
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-full: 999px;
+  --shadow: 0 1px 3px rgba(16, 30, 54, .08), 0 1px 2px rgba(16, 30, 54, .05);
+  --shadow-lg: 0 8px 30px rgba(16, 30, 54, .16);
+
+  --sidebar-w: 224px;
+}
+
+/* ---------- reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  color: var(--c-text);
+  background: var(--c-bg);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4, p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+/* ---------- 앱 레이아웃: 사이드바 + 메인 ---------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--c-primary);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.sidebar-brand {
+  padding: var(--sp-5) var(--sp-4);
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+}
+.sidebar-brand small {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: rgba(255,255,255,.6);
+  margin-top: 2px;
+}
+.nav-group { padding: var(--sp-3) 0 var(--sp-1); }
+.nav-group-title {
+  padding: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: rgba(255,255,255,.45);
+  letter-spacing: .5px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 9px var(--sp-4);
+  color: rgba(255,255,255,.85);
+  font-size: var(--fs-base);
+}
+.nav-item:hover { background: rgba(255,255,255,.08); text-decoration: none; }
+.nav-item.active {
+  background: rgba(255,255,255,.14);
+  color: #fff;
+  font-weight: 600;
+  border-right: 3px solid #fff;
+}
+.nav-item.disabled { color: rgba(255,255,255,.35); cursor: default; }
+.nav-item.disabled:hover { background: none; }
+.nav-soon {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(255,255,255,.14);
+  color: rgba(255,255,255,.55);
+}
+.sidebar-foot {
+  margin-top: auto;
+  padding: var(--sp-4);
+  font-size: var(--fs-xs);
+  color: rgba(255,255,255,.4);
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-6);
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+.topbar h1 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.3px; }
+.topbar .sub { color: var(--c-text-sub); font-size: var(--fs-sm); }
+.topbar .spacer { flex: 1; }
+.content { padding: var(--sp-6); }
+
+/* 모바일 메뉴 토글 */
+.menu-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed;
+    left: 0; top: 0;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .menu-toggle { display: inline-block; }
+  .content { padding: var(--sp-4); }
+  .sidebar-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.35);
+    z-index: 199;
+  }
+  .sidebar-backdrop.show { display: block; }
+}
+
+/* 유틸 */
+.muted { color: var(--c-text-sub); }
+.small { font-size: var(--fs-sm); }
+.nowrap { white-space: nowrap; }
+.right { text-align: right; }
+.center { text-align: center; }
+.mt-2 { margin-top: var(--sp-2); }
+.mt-4 { margin-top: var(--sp-4); }
+.mt-6 { margin-top: var(--sp-6); }
+.flex { display: flex; align-items: center; gap: var(--sp-2); }
+.flex-wrap { flex-wrap: wrap; }
+.grow { flex: 1; }
+.hidden { display: none !important; }
