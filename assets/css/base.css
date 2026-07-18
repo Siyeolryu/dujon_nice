@@ -196,6 +196,8 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   .sidebar.open { transform: translateX(0); }
   .menu-toggle { display: inline-block; }
   .content { padding: var(--sp-4); }
+  .topbar { flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); }
+  .topbar .sub { display: none; }
   .sidebar-backdrop {
     display: none;
     position: fixed; inset: 0;
