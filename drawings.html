@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>도면 검토·측정 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+  <style>
+    .viewer-stage {
+      position: relative;
+      overflow: auto;
+      max-height: 640px;
+      background: var(--c-neutral-soft);
+      border: 1px solid var(--c-border);
+      border-radius: var(--radius);
+    }
+    .viewer-stage canvas { display: block; }
+    #overlayCanvas { position: absolute; left: 0; top: 0; cursor: crosshair; }
+    .mode-btn.active { background: var(--c-primary); color: #fff; border-color: var(--c-primary); }
+    .compare-stage { position: relative; overflow: auto; max-height: 560px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-neutral-soft); }
+    #cmpB { position: absolute; left: 0; top: 0; }
+    .compare-stage.diff #cmpB { mix-blend-mode: difference; }
+    .ocr-progress { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>도면 검토·측정</h1>
+      <span class="sub">도면 PDF 업로드 → 축척 보정 → 면적·길이 측정 → 적산 기초자료</span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnUpload">+ 도면 업로드</button>
+      <input type="file" id="fileInput" accept="application/pdf" class="hidden">
+    </div>
+    <div class="content">
+      <!-- 도면 목록 -->
+      <div class="card">
+        <div class="card-head">
+          <h2>📁 도면·스캔문서 목록</h2>
+          <span class="spacer"></span>
+          <select class="select" id="fSite"></select>
+          <select class="select" id="fDocType">
+            <option value="">전체</option><option>도면</option><option>스캔문서</option>
+          </select>
+        </div>
+        <div class="card-body" id="listArea"></div>
+      </div>
+
+      <!-- 뷰어 -->
+      <div class="card mt-4 hidden" id="viewerCard">
+        <div class="card-head">
+          <h2 id="viewerTitle">뷰어</h2>
+          <span class="spacer"></span>
+          <span class="small muted" id="scaleStatus"></span>
+        </div>
+        <div class="card-body">
+          <div class="filters no-print">
+            <button class="btn sm" id="btnPrevPage">◀ 이전</button>
+            <span class="small nowrap" id="pageLabel">- / -</span>
+            <button class="btn sm" id="btnNextPage">다음 ▶</button>
+            <button class="btn sm" id="btnZoomOut">－</button>
+            <button class="btn sm" id="btnZoomIn">＋</button>
+            <span class="grow"></span>
+            <button class="btn sm mode-btn active" data-mode="view">보기</button>
+            <button class="btn sm mode-btn" data-mode="calibrate">① 축척 보정</button>
+            <button class="btn sm mode-btn" data-mode="area">② 면적 측정</button>
+            <button class="btn sm mode-btn" data-mode="length">② 길이 측정</button>
+            <button class="btn sm" id="btnOcr">OCR 텍스트</button>
+          </div>
+          <p class="small muted mt-2" id="modeHint">축척 보정 후 측정하세요. 측정 중 더블클릭 = 완료, ESC = 취소.</p>
+          <div class="viewer-stage mt-2" id="stage">
+            <canvas id="pdfCanvas"></canvas>
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- 측정 결과 -->
+      <div class="card mt-4 hidden" id="measureCard">
+        <div class="card-head">
+          <h2>📏 측정 결과 <span class="small muted">(적산·견적 기초자료)</span></h2>
+          <span class="spacer"></span>
+          <button class="btn sm" id="btnMeasureCopy">복사</button>
+          <button class="btn sm" id="btnMeasureXlsx">XLSX</button>
+        </div>
+        <div class="card-body" id="measureArea"></div>
+      </div>
+
+      <!-- 도면 비교 -->
+      <div class="card mt-4">
+        <div class="card-head">
+          <h2>🔍 도면 비교 검토 <span class="small muted">(차수 간 불일치 시각 확인)</span></h2>
+        </div>
+        <div class="card-body">
+          <div class="filters">
+            <select class="select" id="cmpA"></select>
+            <input class="input" id="cmpAPage" type="number" min="1" value="1" style="width:70px" title="A 페이지">
+            <span class="small muted">vs</span>
+            <select class="select" id="cmpB2"></select>
+            <input class="input" id="cmpBPage" type="number" min="1" value="1" style="width:70px" title="B 페이지">
+            <button class="btn primary sm" id="btnCompare">비교 실행</button>
+            <span class="grow"></span>
+            <label class="small flex">위 도면 투명도
+              <input type="range" id="cmpOpacity" min="0" max="100" value="50" style="width:120px"></label>
+            <label class="small flex"><input type="checkbox" id="cmpDiff"> 차이 강조</label>
+          </div>
+          <p class="small muted mt-2">두 도면을 겹쳐 투명도를 조절하거나 차이 강조를 켜면 달라진 부위가 밝게 표시됩니다.
+            자동 판정이 아닌 시각 확인 도구입니다.</p>
+          <div class="compare-stage mt-2 hidden" id="cmpStage">
+            <canvas id="cmpACanvas"></canvas>
+            <canvas id="cmpB"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 업로드 모달 -->
+  <div class="modal-backdrop" id="uploadModal">
+    <div class="modal">
+      <div class="modal-head"><h3>도면 업로드</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <p class="small muted" id="uploadFileName"></p>
+        <div class="form-row">
+          <div class="field"><label>현장</label><select class="select" id="uSite"></select></div>
+          <div class="field"><label>구분</label>
+            <select class="select" id="uDocType"><option>도면</option><option>스캔문서</option></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>공종</label>
+            <select class="select" id="uDiscipline">
+              <option>건축</option><option>구조</option><option>설비</option>
+              <option>전기</option><option>토목</option><option>기타</option>
+            </select></div>
+          <div class="field"><label>차수</label><input class="input" id="uRev" placeholder="예: 최초, 변경1차"></div>
+        </div>
+        <div class="field"><label>도면명</label><input class="input" id="uName"></div>
+        <p class="small muted">파일은 이 브라우저(IndexedDB)에만 저장됩니다. 다른 PC와 공유하려면 원본 파일을 별도 전달하세요.</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnUploadSave">업로드</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OCR 모달 -->
+  <div class="modal-backdrop" id="ocrModal">
+    <div class="modal">
+      <div class="modal-head"><h3>OCR 텍스트 추출</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <p class="small muted">현재 페이지의 글자를 인식합니다. 도면 특성상 정확도에 한계가 있으며,
+        처음 실행 시 한국어 인식 데이터를 내려받아 수십 초 걸릴 수 있습니다.</p>
+        <p class="small ocr-progress" id="ocrProgress"></p>
+        <textarea class="textarea" id="ocrResult" style="min-height:200px" placeholder="인식 결과가 여기에 표시됩니다."></textarea>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btnOcrCopy">결과 복사</button>
+        <button class="btn primary" id="btnOcrRun">인식 시작</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/files.js"></script>
+  <script src="assets/js/measure.js"></script>
+  <script>
+    UI.init("drawings", "도면 검토·측정");
+    UI.bindModalClose();
+
+    /* pdf.js 워커: CDN은 크로스 오리진이라 Worker 생성이 차단됨 →
+       스크립트를 받아 blob URL(동일 출처)로 워커를 만든다. */
+    let workerReady = null;
+    if (typeof pdfjsLib !== "undefined") {
+      workerReady = fetch("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js")
+        .then((r) => r.text())
+        .then((code) => {
+          pdfjsLib.GlobalWorkerOptions.workerSrc =
+            URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+        })
+        .catch(() => {
+          UI.toast("PDF 워커를 불러오지 못했습니다. 인터넷 연결을 확인하세요.", "error");
+        });
+    }
+
+    /* ---------- 상태 ---------- */
+    let current = null;      // 현재 도면 메타 (Store.drawings 항목)
+    let pdfDoc = null;
+    let pageNum = 1;
+    let zoom = 1.2;
+    let mode = "view";       // view | calibrate | area | length
+    let draft = [];          // 진행 중 클릭 점 (기준배율 px)
+    let pendingFile = null;
+
+    const pdfCanvas = document.getElementById("pdfCanvas");
+    const overlay = document.getElementById("overlayCanvas");
+
+    /* ---------- 목록 ---------- */
+    function initFilters() {
+      document.getElementById("fSite").innerHTML = UI.siteOptions("", "전체 현장");
+      ["fSite", "fDocType"].forEach((id) =>
+        document.getElementById(id).addEventListener("input", renderList));
+    }
+
+    function renderList() {
+      const site = document.getElementById("fSite").value;
+      const type = document.getElementById("fDocType").value;
+      const list = Store.list("drawings", (d) =>
+        (!site || d.siteId === site) && (!type || d.docType === type))
+        .sort((a, b) => (b.createdAt || "") < (a.createdAt || "") ? -1 : 1);
+      const area = document.getElementById("listArea");
+      if (!Store.list("drawings").length) {
+        area.innerHTML = `<div class="empty"><div class="empty-icon">📐</div>
+          <p>업로드된 도면이 없습니다.<br>PDF 도면을 올려 면적을 측정하고 차수 간 변경을 비교하세요.</p>
+          <button class="btn primary" onclick="document.getElementById('fileInput').click()">+ 도면 업로드</button></div>`;
+        return;
+      }
+      area.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>도면명</th><th>현장</th><th>구분</th><th>공종</th><th>차수</th><th>등록일</th><th></th></tr></thead>
+        <tbody>${list.map((d) => `
+          <tr>
+            <td data-open="${d.id}"><a href="javascript:void(0)">${UI.esc(d.name)}</a></td>
+            <td>${UI.esc(UI.siteName(d.siteId))}</td>
+            <td><span class="badge ${d.docType === "도면" ? "navy" : "gray"}">${UI.esc(d.docType)}</span></td>
+            <td>${UI.esc(d.discipline || "-")}</td>
+            <td>${UI.esc(d.rev || "-")}</td>
+            <td class="nowrap small">${UI.fmtDate(d.createdAt)}</td>
+            <td><button class="btn sm danger" data-del="${d.id}">삭제</button></td>
+          </tr>`).join("")}</tbody></table></div>`;
+      area.querySelectorAll("[data-open]").forEach((el) =>
+        el.addEventListener("click", () => openDrawing(el.dataset.open)));
+      area.querySelectorAll("[data-del]").forEach((btn) =>
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const d = Store.get("drawings", btn.dataset.del);
+          if (d && confirm(`"${d.name}" 도면과 측정 기록을 삭제할까요?`)) {
+            await Files.deleteFile(d.fileId);
+            Store.list("measurements", (m) => m.drawingId === d.id)
+              .forEach((m) => Store.remove("measurements", m.id));
+            Store.remove("drawings", d.id);
+            if (current && current.id === d.id) {
+              current = null;
+              document.getElementById("viewerCard").classList.add("hidden");
+              document.getElementById("measureCard").classList.add("hidden");
+            }
+            renderList(); refreshCompareSelects();
+            UI.toast("삭제했습니다.");
+          }
+        }));
+    }
+
+    /* ---------- 업로드 ---------- */
+    document.getElementById("btnUpload").addEventListener("click", () =>
+      document.getElementById("fileInput").click());
+    document.getElementById("fileInput").addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (f.type !== "application/pdf") { UI.toast("PDF 파일만 업로드할 수 있습니다.", "error"); return; }
+      pendingFile = f;
+      document.getElementById("uploadFileName").textContent = `파일: ${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
+      document.getElementById("uName").value = f.name.replace(/\.pdf$/i, "");
+      document.getElementById("uSite").innerHTML = UI.siteOptions("", "현장 없음(공통)");
+      document.getElementById("uRev").value = "";
+      UI.openModal("uploadModal");
+      e.target.value = "";
+    });
+
+    document.getElementById("btnUploadSave").addEventListener("click", async () => {
+      if (!pendingFile) return;
+      const fileId = crypto.randomUUID();
+      try {
+        await Files.putFile(fileId, pendingFile);
+      } catch {
+        UI.toast("파일 저장에 실패했습니다. 브라우저 저장 공간을 확인하세요.", "error");
+        return;
+      }
+      const meta = Store.add("drawings", {
+        siteId: document.getElementById("uSite").value || null,
+        name: document.getElementById("uName").value.trim() || pendingFile.name,
+        docType: document.getElementById("uDocType").value,
+        discipline: document.getElementById("uDiscipline").value,
+        rev: document.getElementById("uRev").value.trim(),
+        fileId, pageCount: null, scalePxPerMeter: null, documentId: null,
+      });
+      pendingFile = null;
+      UI.closeModal("uploadModal");
+      renderList(); refreshCompareSelects();
+      UI.toast("업로드했습니다. 목록에서 열어 측정하세요.", "success");
+      openDrawing(meta.id);
+    });
+
+    /* ---------- 뷰어 ---------- */
+    async function openDrawing(id) {
+      if (typeof pdfjsLib === "undefined") {
+        UI.toast("PDF 라이브러리(pdf.js)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.", "error");
+        return;
+      }
+      const d = Store.get("drawings", id);
+      if (!d) return;
+      const blob = await Files.getFile(d.fileId);
+      if (!blob) { UI.toast("파일을 찾지 못했습니다. 이 브라우저에 저장된 파일이 아닐 수 있습니다.", "error"); return; }
+      current = d;
+      pageNum = 1; zoom = 1.2; draft = []; setMode("view");
+      if (workerReady) await workerReady;
+      const buf = await blob.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      if (!d.pageCount) Store.update("drawings", id, { pageCount: pdfDoc.numPages });
+      document.getElementById("viewerCard").classList.remove("hidden");
+      document.getElementById("measureCard").classList.remove("hidden");
+      document.getElementById("viewerTitle").textContent =
+        `${d.name} ${d.rev ? `(${d.rev})` : ""}`;
+      await renderPage();
+      renderMeasureList();
+      document.getElementById("viewerCard").scrollIntoView({ behavior: "smooth" });
+    }
+
+    async function renderPage() {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: zoom });
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      overlay.width = viewport.width;
+      overlay.height = viewport.height;
+      // intent:"print" — rAF 스케줄링 없이 즉시 렌더 (임베디드 환경에서도 안전)
+      await page.render({ canvasContext: pdfCanvas.getContext("2d"), viewport, intent: "print" }).promise;
+      document.getElementById("pageLabel").textContent = `${pageNum} / ${pdfDoc.numPages}`;
+      drawOverlay();
+      updateScaleStatus();
+    }
+
+    function updateScaleStatus() {
+      const el = document.getElementById("scaleStatus");
+      if (current && current.scalePxPerMeter) {
+        el.textContent = `축척 보정됨 (1m = ${current.scalePxPerMeter.toFixed(1)}px)`;
+        el.style.color = "var(--c-success)";
+      } else {
+        el.textContent = "축척 미보정 — 측정 전 ① 축척 보정 필요";
+        el.style.color = "var(--c-warn)";
+      }
+    }
+
+    /* ---------- 오버레이 (저장된 측정 + 진행 중 점) ---------- */
+    function drawOverlay() {
+      const ctx = overlay.getContext("2d");
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!current) return;
+      const items = Store.list("measurements", (m) => m.drawingId === current.id && m.page === pageNum);
+      items.forEach((m) => drawShape(ctx, m.points, m.kind === "면적", "#2f80ed",
+        `${m.label}: ${m.kind === "면적" ? Measure.fmtArea(m.value) : Measure.fmtLength(m.value)}`));
+      if (draft.length) {
+        drawShape(ctx, draft, mode === "area", mode === "calibrate" ? "#d93025" : "#1e8e3e", null, true);
+      }
+    }
+
+    function drawShape(ctx, basePoints, closed, color, label, inProgress) {
+      const pts = basePoints.map((p) => ({ x: p.x * zoom, y: p.y * zoom }));
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color + "33";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      if (closed && pts.length > 2 && !inProgress) ctx.closePath();
+      ctx.stroke();
+      if (closed && pts.length > 2 && !inProgress) ctx.fill();
+      pts.forEach((p) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.fillStyle = color + "33";
+      });
+      if (label && pts.length) {
+        ctx.font = "bold 13px sans-serif";
+        ctx.fillStyle = "#1f2937";
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const w = ctx.measureText(label).width;
+        ctx.fillStyle = "rgba(255,255,255,.85)";
+        ctx.fillRect(cx - w / 2 - 4, cy - 10, w + 8, 20);
+        ctx.fillStyle = "#1f2937";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, cx, cy);
+        ctx.textAlign = "start";
+        ctx.textBaseline = "alphabetic";
+      }
+    }
+
+    /* ---------- 모드·클릭 ---------- */
+    function setMode(m) {
+      mode = m; draft = [];
+      document.querySelectorAll(".mode-btn").forEach((b) =>
+        b.classList.toggle("active", b.dataset.mode === m));
+      const hints = {
+        view: "보기 모드입니다. 측정하려면 축척 보정 후 면적/길이 모드를 선택하세요.",
+        calibrate: "축척 보정: 도면에서 실제 길이를 아는 두 점을 차례로 클릭하세요 (예: 치수선 양 끝).",
+        area: "면적 측정: 경계를 따라 점을 클릭하고, 더블클릭으로 완료하세요. ESC = 취소.",
+        length: "길이 측정: 경로를 따라 점을 클릭하고, 더블클릭으로 완료하세요. ESC = 취소.",
+      };
+      document.getElementById("modeHint").textContent = hints[m];
+      if (overlay.width) drawOverlay();
+    }
+    document.querySelectorAll(".mode-btn").forEach((b) =>
+      b.addEventListener("click", () => {
+        if ((b.dataset.mode === "area" || b.dataset.mode === "length") &&
+            current && !current.scalePxPerMeter) {
+          UI.toast("먼저 축척 보정을 하세요. (① 축척 보정 → 치수선 두 점 클릭)", "error");
+        }
+        setMode(b.dataset.mode);
+      }));
+
+    function canvasPoint(e) {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
+    }
+
+    overlay.addEventListener("click", (e) => {
+      if (!current || mode === "view") return;
+      draft.push(canvasPoint(e));
+      if (mode === "calibrate" && draft.length === 2) {
+        const input = prompt("두 점 사이의 실제 거리를 미터(m)로 입력하세요.\n예: 치수선이 3,600mm이면 3.6");
+        const meters = parseFloat(input);
+        const ppm = Measure.calibrate(draft[0], draft[1], meters);
+        draft = [];
+        if (!ppm) { UI.toast("올바른 숫자를 입력하세요.", "error"); drawOverlay(); return; }
+        Store.update("drawings", current.id, { scalePxPerMeter: ppm });
+        current = Store.get("drawings", current.id);
+        updateScaleStatus();
+        UI.toast(`축척 보정 완료: 1m = ${ppm.toFixed(1)}px. 이제 면적·길이를 측정하세요.`, "success");
+        setMode("area");
+        return;
+      }
+      drawOverlay();
+    });
+
+    overlay.addEventListener("dblclick", () => {
+      if (!current) return;
+      if (mode === "area" && draft.length >= 3) finishMeasure("면적");
+      else if (mode === "length" && draft.length >= 2) finishMeasure("길이");
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && draft.length) { draft = []; drawOverlay(); UI.toast("측정을 취소했습니다."); }
+    });
+
+    function finishMeasure(kind) {
+      if (!current.scalePxPerMeter) {
+        UI.toast("축척 보정이 필요합니다.", "error");
+        draft = []; drawOverlay(); return;
+      }
+      // dblclick은 click 2회 뒤에 발생 → 마지막 중복 점 제거
+      if (draft.length > 1) {
+        const a = draft[draft.length - 1], b = draft[draft.length - 2];
+        if (Measure.dist(a, b) < 3) draft.pop();
+      }
+      const label = prompt(`측정 라벨을 입력하세요. (예: 101호 거실)`) || `측정 ${Store.list("measurements").length + 1}`;
+      const ppm = current.scalePxPerMeter;
+      const value = kind === "면적" ? Measure.areaSqMeters(draft, ppm) : Measure.lengthMeters(draft, ppm);
+      Store.add("measurements", {
+        drawingId: current.id, page: pageNum, label, kind,
+        value: Math.round(value * 100) / 100,
+        unit: kind === "면적" ? "㎡" : "m",
+        scale: { pxPerMeter: ppm },
+        points: draft,
+      });
+      draft = [];
+      drawOverlay();
+      renderMeasureList();
+      UI.toast(`${label}: ${kind === "면적" ? Measure.fmtArea(value) : Measure.fmtLength(value)} 저장`, "success");
+    }
+
+    /* ---------- 측정 목록 ---------- */
+    function renderMeasureList() {
+      const area = document.getElementById("measureArea");
+      if (!current) { area.innerHTML = ""; return; }
+      const items = Store.list("measurements", (m) => m.drawingId === current.id);
+      if (!items.length) {
+        area.innerHTML = `<p class="muted small">측정 결과가 없습니다. 뷰어에서 축척 보정 후 면적·길이를 측정하세요.</p>`;
+        return;
+      }
+      area.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>라벨</th><th>구분</th><th>값</th><th>페이지</th><th></th></tr></thead>
+        <tbody>${items.map((m) => `
+          <tr class="no-hover">
+            <td>${UI.esc(m.label)}</td>
+            <td>${m.kind === "면적" ? '<span class="badge blue">면적</span>' : '<span class="badge green">길이</span>'}</td>
+            <td class="nowrap">${m.kind === "면적" ? Measure.fmtArea(m.value) : Measure.fmtLength(m.value)}</td>
+            <td class="center">${m.page}</td>
+            <td><button class="btn sm danger" data-mdel="${m.id}">삭제</button></td>
+          </tr>`).join("")}</tbody></table></div>`;
+      area.querySelectorAll("[data-mdel]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          Store.remove("measurements", btn.dataset.mdel);
+          renderMeasureList(); drawOverlay();
+        }));
+    }
+
+    document.getElementById("btnMeasureXlsx").addEventListener("click", () => {
+      if (!current) return;
+      if (!UI.requireLib("XLSX", "엑셀(SheetJS)")) return;
+      const items = Store.list("measurements", (m) => m.drawingId === current.id);
+      if (!items.length) { UI.toast("내보낼 측정 결과가 없습니다.", "error"); return; }
+      const rows = items.map((m) => ({
+        도면: current.name, 차수: current.rev || "", 페이지: m.page,
+        라벨: m.label, 구분: m.kind, 값: m.value, 단위: m.unit,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "측정결과");
+      XLSX.writeFile(wb, `측정결과_${current.name}_${UI.todayStr()}.xlsx`);
+    });
+
+    document.getElementById("btnMeasureCopy").addEventListener("click", async () => {
+      if (!current) return;
+      const items = Store.list("measurements", (m) => m.drawingId === current.id);
+      if (!items.length) { UI.toast("복사할 측정 결과가 없습니다.", "error"); return; }
+      const text = [`[측정 결과] ${current.name} ${current.rev || ""}`.trim(),
+        ...items.map((m) => `- ${m.label}: ${m.value} ${m.unit} (p.${m.page})`)].join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        UI.toast("측정 결과를 복사했습니다.", "success");
+      } catch { UI.toast("복사에 실패했습니다.", "error"); }
+    });
+
+    /* ---------- 페이지·줌 ---------- */
+    document.getElementById("btnPrevPage").addEventListener("click", () => {
+      if (pdfDoc && pageNum > 1) { pageNum--; draft = []; renderPage(); }
+    });
+    document.getElementById("btnNextPage").addEventListener("click", () => {
+      if (pdfDoc && pageNum < pdfDoc.numPages) { pageNum++; draft = []; renderPage(); }
+    });
+    document.getElementById("btnZoomIn").addEventListener("click", () => {
+      if (pdfDoc) { zoom = Math.min(zoom * 1.25, 4); renderPage(); }
+    });
+    document.getElementById("btnZoomOut").addEventListener("click", () => {
+      if (pdfDoc) { zoom = Math.max(zoom / 1.25, 0.4); renderPage(); }
+    });
+
+    /* ---------- OCR ---------- */
+    document.getElementById("btnOcr").addEventListener("click", () => {
+      if (!current) return;
+      document.getElementById("ocrProgress").textContent = "";
+      document.getElementById("ocrResult").value = "";
+      UI.openModal("ocrModal");
+    });
+
+    document.getElementById("btnOcrRun").addEventListener("click", async () => {
+      const progress = document.getElementById("ocrProgress");
+      if (typeof Tesseract === "undefined") {
+        progress.textContent = "OCR 라이브러리 로드 중...";
+        try {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        } catch {
+          progress.textContent = "";
+          UI.toast("OCR 라이브러리(Tesseract.js)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.", "error");
+          return;
+        }
+      }
+      try {
+        progress.textContent = "인식 준비 중... (처음이면 언어 데이터 다운로드)";
+        const result = await Tesseract.recognize(pdfCanvas.toDataURL("image/png"), "kor+eng", {
+          logger: (m) => {
+            if (m.status === "recognizing text") {
+              progress.textContent = `인식 중... ${(m.progress * 100).toFixed(0)}%`;
+            }
+          },
+        });
+        document.getElementById("ocrResult").value = result.data.text.trim() || "(인식된 텍스트 없음)";
+        progress.textContent = "완료";
+      } catch {
+        progress.textContent = "";
+        UI.toast("OCR 인식에 실패했습니다.", "error");
+      }
+    });
+
+    document.getElementById("btnOcrCopy").addEventListener("click", async () => {
+      const text = document.getElementById("ocrResult").value;
+      if (!text) { UI.toast("복사할 내용이 없습니다.", "error"); return; }
+      try { await navigator.clipboard.writeText(text); UI.toast("복사했습니다.", "success"); }
+      catch { UI.toast("복사에 실패했습니다.", "error"); }
+    });
+
+    /* ---------- 도면 비교 ---------- */
+    function refreshCompareSelects() {
+      const list = Store.list("drawings");
+      const opts = `<option value="">도면 선택</option>` +
+        list.map((d) => `<option value="${d.id}">${UI.esc(d.name)} ${UI.esc(d.rev || "")}</option>`).join("");
+      document.getElementById("cmpA").innerHTML = opts;
+      document.getElementById("cmpB2").innerHTML = opts;
+    }
+
+    async function renderPdfTo(canvas, drawingId, page, width) {
+      const d = Store.get("drawings", drawingId);
+      const blob = await Files.getFile(d.fileId);
+      const doc = await pdfjsLib.getDocument({ data: await blob.arrayBuffer() }).promise;
+      const p = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
+      const base = p.getViewport({ scale: 1 });
+      const viewport = p.getViewport({ scale: width / base.width });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await p.render({ canvasContext: canvas.getContext("2d"), viewport, intent: "print" }).promise;
+    }
+
+    document.getElementById("btnCompare").addEventListener("click", async () => {
+      if (typeof pdfjsLib === "undefined") {
+        UI.toast("PDF 라이브러리를 불러오지 못했습니다.", "error"); return;
+      }
+      const aId = document.getElementById("cmpA").value;
+      const bId = document.getElementById("cmpB2").value;
+      if (!aId || !bId) { UI.toast("비교할 도면 두 개를 선택하세요.", "error"); return; }
+      const stage = document.getElementById("cmpStage");
+      stage.classList.remove("hidden");
+      try {
+        if (workerReady) await workerReady;
+        await renderPdfTo(document.getElementById("cmpACanvas"), aId,
+          parseInt(document.getElementById("cmpAPage").value, 10) || 1, 1000);
+        await renderPdfTo(document.getElementById("cmpB"), bId,
+          parseInt(document.getElementById("cmpBPage").value, 10) || 1, 1000);
+        applyCompareStyle();
+        UI.toast("비교 화면을 생성했습니다. 투명도를 조절해 보세요.", "success");
+      } catch {
+        UI.toast("비교 렌더링에 실패했습니다.", "error");
+      }
+    });
+
+    function applyCompareStyle() {
+      document.getElementById("cmpB").style.opacity =
+        document.getElementById("cmpOpacity").value / 100;
+      document.getElementById("cmpStage").classList.toggle(
+        "diff", document.getElementById("cmpDiff").checked);
+    }
+    document.getElementById("cmpOpacity").addEventListener("input", applyCompareStyle);
+    document.getElementById("cmpDiff").addEventListener("change", () => {
+      // 차이 강조 시 투명도는 100%가 보기 좋음
+      if (document.getElementById("cmpDiff").checked) document.getElementById("cmpOpacity").value = 100;
+      applyCompareStyle();
+    });
+
+    /* ---------- 초기화 ---------- */
+    if (typeof pdfjsLib === "undefined") {
+      UI.toast("PDF 라이브러리(pdf.js)를 불러오지 못했습니다. 도면 열람이 제한됩니다.", "error");
+    }
+    initFilters();
+    renderList();
+    refreshCompareSelects();
+  </script>
+</body>
+</html>
