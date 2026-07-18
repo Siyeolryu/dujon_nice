@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>하도급·키스콘 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+  <style>
+    .warn-strip {
+      background: var(--c-warn-soft);
+      color: var(--c-warn);
+      border: 1px solid var(--c-warn);
+      border-radius: var(--radius);
+      padding: var(--sp-3) var(--sp-4);
+      font-weight: 600;
+    }
+    .wizard-step { display: none; }
+    .wizard-step.active { display: block; }
+    .step-dots { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-4); }
+    .step-dot {
+      width: 26px; height: 26px; border-radius: var(--radius-full);
+      background: var(--c-neutral-soft); color: var(--c-text-sub);
+      display: flex; align-items: center; justify-content: center;
+      font-size: var(--fs-sm); font-weight: 700;
+    }
+    .step-dot.on { background: var(--c-primary); color: #fff; }
+    .check-table td:first-child { width: 55%; }
+  </style>
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>하도급·키스콘</h1>
+      <span class="sub">하도급 조건 점검과 통보기한 관리</span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnNew">+ 하도급 등록</button>
+    </div>
+    <div class="content">
+      <div id="warnArea" class="mb"></div>
+      <div class="card mt-4" id="listArea"></div>
+      <p class="small muted mt-2">※ 통보기한은 계약 체결일 + 30일로 자동 계산됩니다(수정 가능).
+      금액 기준·심사 요건은 법령 개정에 따라 달라질 수 있으니 최신 기준을 확인하세요.</p>
+    </div>
+  </div>
+
+  <!-- 등록/수정 위저드 모달 -->
+  <div class="modal-backdrop" id="subModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="modalTitle">하도급 등록</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="step-dots">
+          <div class="step-dot on" data-dot="1">1</div><span class="small muted">계약 정보</span>
+          <div class="step-dot" data-dot="2">2</div><span class="small muted">조건 점검</span>
+          <div class="step-dot" data-dot="3">3</div><span class="small muted">키스콘 통보</span>
+        </div>
+
+        <!-- 1단계: 계약 정보 -->
+        <div class="wizard-step active" data-step="1">
+          <div class="form-row">
+            <div class="field"><label>현장 <span class="req">*</span></label><select class="select" id="wSite"></select></div>
+            <div class="field"><label>공종 <span class="req">*</span></label><input class="input" id="wTrade" placeholder="예: 철근콘크리트"></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>하수급 업체명 <span class="req">*</span></label><input class="input" id="wCompany"></div>
+            <div class="field"><label>하도급 금액 (원)</label><input class="input" id="wAmount" type="number" min="0" step="1000000"></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>계약 체결일</label><input class="input" id="wDate" type="date"></div>
+            <div class="field"><label>상태</label>
+              <select class="select" id="wStatus"><option>검토중</option><option>계약</option><option>통보완료</option><option>변경통보필요</option></select></div>
+          </div>
+        </div>
+
+        <!-- 2단계: 조건 점검 -->
+        <div class="wizard-step" data-step="2">
+          <p class="small muted">계약 전 적법 요건입니다. 하나라도 "미확인"이면 계약을 진행하지 않는 것이 원칙입니다.</p>
+          <div class="table-wrap"><table class="table check-table">
+            <tbody id="checkRows"></tbody>
+          </table></div>
+        </div>
+
+        <!-- 3단계: 키스콘 통보 -->
+        <div class="wizard-step" data-step="3">
+          <div class="form-row">
+            <div class="field"><label>통보기한 <span class="small muted">(계약일+30일 자동)</span></label>
+              <input class="input" id="wKisconDue" type="date"></div>
+            <div class="field"><label>통보 완료일</label><input class="input" id="wKisconDone" type="date"></div>
+          </div>
+          <label class="small flex"><input type="checkbox" id="wMakeEvent" checked>
+            통보기한을 캘린더 일정으로 등록</label>
+          <div class="field mt-4"><label>비고</label><input class="input" id="wMemo"></div>
+          <div id="wizardSummary" class="small muted mt-2"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" id="btnPrev">이전</button>
+        <button class="btn primary" id="btnNext">다음</button>
+        <button class="btn primary hidden" id="btnSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    UI.init("subcontracts", "하도급·키스콘");
+    UI.bindModalClose();
+
+    const CHECKS = [
+      { key: "license", label: "하수급인 해당 공종 건설업 등록 보유", hint: "종합·전문 상호진출 요건 포함 확인" },
+      { key: "noWholeSub", label: "일괄하도급 아님", hint: "도급공사 전부·주요부분 일괄 하도급 금지" },
+      { key: "noReSub", label: "재하도급 아님 (또는 예외 요건 충족)", hint: "재하도급 원칙 금지" },
+      { key: "bond", label: "하도급대금 지급보증서 교부 (또는 면제 사유 확인)", hint: "면제 사유는 비고에 기록" },
+      { key: "standardForm", label: "표준하도급계약서 사용", hint: "공정위 표준양식" },
+      { key: "fairness", label: "적정성 심사 대상 여부 확인", hint: "하도급률 미달 시 발주자 심사 — 최신 기준 확인" },
+    ];
+    let editingId = null;
+    let step = 1;
+
+    /* ---------- 목록 ---------- */
+    function render() {
+      const list = Store.list("subcontracts")
+        .sort((a, b) => (b.createdAt || "") < (a.createdAt || "") ? -1 : 1);
+      const today = UI.todayStr();
+      const soon = UI.addDays(today, 7);
+
+      // 경고 스트립: 통보기한 임박·경과 (미통보 건)
+      const urgent = list.filter((s) => !s.kisconNotifiedAt && s.kisconDueDate && s.kisconDueDate <= soon);
+      document.getElementById("warnArea").innerHTML = urgent.length
+        ? `<div class="warn-strip">⚠ 키스콘 통보기한 임박·경과 ${urgent.length}건 — ${urgent.map((s) =>
+            `${UI.esc(s.company)}(${UI.fmtShort(s.kisconDueDate)})`).join(", ")}</div>`
+        : "";
+
+      const area = document.getElementById("listArea");
+      if (!list.length) {
+        area.innerHTML = `<div class="empty"><div class="empty-icon">📑</div>
+          <p>등록된 하도급 계약이 없습니다.<br>등록 위저드가 적법 조건을 점검하고 키스콘 통보기한을 자동 관리합니다.</p>
+          <button class="btn primary" onclick="openNew()">+ 하도급 등록</button></div>`;
+        return;
+      }
+      area.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>업체</th><th>공종</th><th>현장</th><th>금액</th><th>계약일</th>
+          <th>조건 점검</th><th>키스콘 통보</th><th>상태</th></tr></thead>
+        <tbody>${list.map((s) => {
+          const checks = s.checks || {};
+          const ok = CHECKS.filter((c) => checks[c.key] === "확인" || checks[c.key] === "해당없음").length;
+          const checkBadge = ok === CHECKS.length
+            ? `<span class="badge green">${ok}/${CHECKS.length} 완료</span>`
+            : `<span class="badge orange">${ok}/${CHECKS.length}</span>`;
+          const kiscon = s.kisconNotifiedAt
+            ? `<span class="badge green">통보 ${UI.fmtShort(s.kisconNotifiedAt)}</span>`
+            : s.kisconDueDate
+              ? `${UI.fmtShort(s.kisconDueDate)} ${UI.ddayBadge(s.kisconDueDate)}`
+              : "-";
+          const overdue = !s.kisconNotifiedAt && s.kisconDueDate && s.kisconDueDate < today;
+          return `<tr data-open="${s.id}" class="${overdue ? "overdue" : ""}">
+            <td>${UI.esc(s.company)}</td>
+            <td>${UI.esc(s.trade)}</td>
+            <td>${UI.esc(UI.siteName(s.siteId))}</td>
+            <td class="right nowrap">${s.amount ? Number(s.amount).toLocaleString() : "-"}</td>
+            <td class="nowrap">${UI.fmtDate(s.contractDate)}</td>
+            <td>${checkBadge}</td>
+            <td class="nowrap">${kiscon}</td>
+            <td>${UI.badge(s.status)}</td>
+          </tr>`;
+        }).join("")}</tbody></table></div>`;
+      area.querySelectorAll("[data-open]").forEach((tr) =>
+        tr.addEventListener("click", () => openEdit(tr.dataset.open)));
+    }
+
+    /* ---------- 위저드 ---------- */
+    function gotoStep(n) {
+      step = n;
+      document.querySelectorAll(".wizard-step").forEach((el) =>
+        el.classList.toggle("active", parseInt(el.dataset.step, 10) === n));
+      document.querySelectorAll(".step-dot").forEach((el) =>
+        el.classList.toggle("on", parseInt(el.dataset.dot, 10) <= n));
+      document.getElementById("btnPrev").classList.toggle("hidden", n === 1);
+      document.getElementById("btnNext").classList.toggle("hidden", n === 3);
+      document.getElementById("btnSave").classList.toggle("hidden", n !== 3);
+      if (n === 3) updateSummary();
+    }
+
+    function renderCheckRows(checks = {}) {
+      document.getElementById("checkRows").innerHTML = CHECKS.map((c) => `
+        <tr class="no-hover">
+          <td>${UI.esc(c.label)}<br><span class="small muted">${UI.esc(c.hint)}</span></td>
+          <td><select class="select" data-check="${c.key}">
+            ${["미확인", "확인", "해당없음"].map((v) =>
+              `<option ${(checks[c.key] || "미확인") === v ? "selected" : ""}>${v}</option>`).join("")}
+          </select></td>
+        </tr>`).join("");
+    }
+
+    function collectChecks() {
+      const out = {};
+      document.querySelectorAll("[data-check]").forEach((sel) => (out[sel.dataset.check] = sel.value));
+      return out;
+    }
+
+    function updateSummary() {
+      const checks = collectChecks();
+      const bad = CHECKS.filter((c) => checks[c.key] === "미확인");
+      document.getElementById("wizardSummary").innerHTML = bad.length
+        ? `⚠ <b>미확인 조건 ${bad.length}건</b>: ${bad.map((c) => UI.esc(c.label)).join(" · ")}
+           <br>미확인 상태로 저장은 가능하지만 목록에 경고로 표시됩니다.`
+        : `✅ 조건 점검 완료. 저장 시 통보기한이 기한 관리에 합류합니다.`;
+    }
+
+    /* 계약일 → 통보기한 자동 (계약일+30일) */
+    document.getElementById("wDate").addEventListener("change", () => {
+      const d = document.getElementById("wDate").value;
+      if (d) document.getElementById("wKisconDue").value = UI.addDays(d, 30);
+    });
+
+    function openNew() {
+      editingId = null;
+      document.getElementById("modalTitle").textContent = "하도급 등록";
+      document.getElementById("btnDelete").classList.add("hidden");
+      document.getElementById("wSite").innerHTML = UI.siteOptions("", "현장 선택");
+      ["wTrade","wCompany","wAmount","wKisconDone","wMemo"].forEach((id) =>
+        (document.getElementById(id).value = ""));
+      document.getElementById("wDate").value = UI.todayStr();
+      document.getElementById("wKisconDue").value = UI.addDays(UI.todayStr(), 30);
+      document.getElementById("wStatus").value = "검토중";
+      document.getElementById("wMakeEvent").checked = true;
+      renderCheckRows();
+      gotoStep(1);
+      UI.openModal("subModal");
+    }
+
+    function openEdit(id) {
+      const s = Store.get("subcontracts", id);
+      if (!s) return;
+      editingId = id;
+      document.getElementById("modalTitle").textContent = "하도급 수정";
+      document.getElementById("btnDelete").classList.remove("hidden");
+      document.getElementById("wSite").innerHTML = UI.siteOptions(s.siteId, "현장 선택");
+      document.getElementById("wTrade").value = s.trade || "";
+      document.getElementById("wCompany").value = s.company || "";
+      document.getElementById("wAmount").value = s.amount || "";
+      document.getElementById("wDate").value = s.contractDate || "";
+      document.getElementById("wStatus").value = s.status || "검토중";
+      document.getElementById("wKisconDue").value = s.kisconDueDate || "";
+      document.getElementById("wKisconDone").value = s.kisconNotifiedAt || "";
+      document.getElementById("wMemo").value = s.memo || "";
+      document.getElementById("wMakeEvent").checked = false;
+      renderCheckRows(s.checks || {});
+      gotoStep(1);
+      UI.openModal("subModal");
+    }
+
+    document.getElementById("btnNext").addEventListener("click", () => {
+      if (step === 1) {
+        if (!document.getElementById("wCompany").value.trim() ||
+            !document.getElementById("wTrade").value.trim()) {
+          UI.toast("업체명과 공종을 입력하세요.", "error"); return;
+        }
+      }
+      gotoStep(step + 1);
+    });
+    document.getElementById("btnPrev").addEventListener("click", () => gotoStep(step - 1));
+
+    document.getElementById("btnSave").addEventListener("click", () => {
+      const data = {
+        siteId: document.getElementById("wSite").value || null,
+        trade: document.getElementById("wTrade").value.trim(),
+        company: document.getElementById("wCompany").value.trim(),
+        amount: parseFloat(document.getElementById("wAmount").value) || null,
+        contractDate: document.getElementById("wDate").value || null,
+        status: document.getElementById("wStatus").value,
+        checks: collectChecks(),
+        kisconDueDate: document.getElementById("wKisconDue").value || null,
+        kisconNotifiedAt: document.getElementById("wKisconDone").value || null,
+        memo: document.getElementById("wMemo").value.trim(),
+      };
+      if (data.kisconNotifiedAt && data.status === "계약") data.status = "통보완료";
+      let saved;
+      if (editingId) {
+        saved = Store.update("subcontracts", editingId, data);
+        UI.toast("수정했습니다.", "success");
+      } else {
+        saved = Store.add("subcontracts", data);
+        UI.toast("등록했습니다.", "success");
+      }
+      // 캘린더 일정 자동 생성 (기타 유형이 아닌 '계약마감' 유형으로 표시)
+      if (document.getElementById("wMakeEvent").checked && data.kisconDueDate && !data.kisconNotifiedAt) {
+        Store.add("events", {
+          title: `키스콘 통보기한 — ${data.company} (${data.trade})`,
+          date: data.kisconDueDate,
+          type: "계약마감",
+          siteId: data.siteId,
+          memo: "하도급 통보 30일 기한",
+        });
+        UI.toast("통보기한을 캘린더에 등록했습니다.");
+      }
+      UI.closeModal("subModal");
+      render();
+    });
+
+    document.getElementById("btnDelete").addEventListener("click", () => {
+      if (editingId && confirm("이 하도급 건을 삭제할까요?")) {
+        Store.remove("subcontracts", editingId);
+        UI.closeModal("subModal");
+        UI.toast("삭제했습니다.");
+        render();
+      }
+    });
+
+    document.getElementById("btnNew").addEventListener("click", openNew);
+    render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>착공·준공 체크리스트 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+  <style>
+    .progress-bar { height: 8px; background: var(--c-neutral-soft); border-radius: var(--radius-full); overflow: hidden; }
+    .progress-bar > div { height: 100%; background: var(--c-success); }
+    .status-select { width: auto; padding: 3px 6px; font-size: var(--fs-sm); }
+    .na-row td { color: var(--c-text-faint); }
+  </style>
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>착공·준공 체크리스트</h1>
+      <span class="sub">시·군청 제출 서류 누락·기한 관리</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btnLocalize">지자체 확인본 만들기</button>
+      <button class="btn" onclick="window.print()">인쇄</button>
+      <button class="btn primary" id="btnAddItem">+ 항목 추가</button>
+    </div>
+    <div class="content">
+      <!-- 인쇄 헤더 -->
+      <div class="print-only">
+        <div class="print-header">
+          <div>
+            <div class="print-title" id="printTitle">착 공 서 류 체 크 리 스 트</div>
+            <div class="print-sub" id="printSub"></div>
+          </div>
+          <table class="approval">
+            <tr><th>담당</th><th>팀장</th><th>부장</th></tr>
+            <tr><td></td><td></td><td></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="filters no-print">
+        <select class="select" id="fSite"></select>
+        <div class="tabs" style="border:none;margin:0">
+          <button class="tab active" data-kind="착공">착공</button>
+          <button class="tab" data-kind="준공">준공</button>
+        </div>
+        <select class="select" id="fGroup"><option value="">전체 그룹</option></select>
+        <select class="select" id="fStatus">
+          <option value="">전체 상태</option>
+          <option>준비중</option><option>제출</option><option>보완요청</option><option>완료</option><option>해당없음</option>
+        </select>
+        <input class="input" id="fSearch" type="search" placeholder="항목 검색">
+      </div>
+
+      <div class="kpi-grid mt-4 no-print" id="summaryArea"></div>
+      <div class="card mt-4" id="listArea"></div>
+    </div>
+  </div>
+
+  <!-- 시작(템플릿 선택) 모달 -->
+  <div class="modal-backdrop" id="startModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="startTitle">체크리스트 시작</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <p class="small muted">템플릿을 선택해 이 현장의 체크리스트를 만듭니다.
+        시·군청 확인을 마친 지자체 템플릿이 있으면 그것을 권장합니다.</p>
+        <div class="field"><label>템플릿</label><select class="select" id="startTemplate"></select></div>
+        <p class="small muted" id="startTemplateMeta"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnStartSave">체크리스트 생성</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 항목 상세 모달 -->
+  <div class="modal-backdrop" id="itemModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="itemTitle">항목</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label>항목명 <span class="req">*</span></label><input class="input" id="iTitle"></div>
+          <div class="field"><label>그룹</label><input class="input" id="iGroup" list="groupList"><datalist id="groupList"></datalist></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>관할·시스템</label><input class="input" id="iAgency"></div>
+          <div class="field"><label>적용</label>
+            <select class="select" id="iRequired"><option>항상</option><option>대상공사</option><option>해당시</option></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>상태</label>
+            <select class="select" id="iStatus">
+              <option>준비중</option><option>제출</option><option>보완요청</option><option>완료</option><option>해당없음</option>
+            </select></div>
+          <div class="field"><label>기한 <span class="small muted">(캘린더 자동 표시)</span></label><input class="input" id="iDue" type="date"></div>
+          <div class="field"><label>담당</label><select class="select" id="iOwner"></select></div>
+        </div>
+        <div class="field"><label>관련 문서 (문서대장 연결)</label><select class="select" id="iDocument"></select></div>
+        <div class="field"><label>서식 출처·참고</label><input class="input" id="iFormNote" placeholder="예: 시청 홈페이지 고시, 세움터 서식"></div>
+        <div class="field"><label>메모</label><textarea class="textarea" id="iMemo"></textarea></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger" id="btnItemDelete">항목 삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnItemSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 지자체 확인본 모달 -->
+  <div class="modal-backdrop" id="localizeModal">
+    <div class="modal">
+      <div class="modal-head"><h3>지자체 확인본 만들기</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <p class="small muted">표준 템플릿을 복제해 해당 시·군청 확인 내용으로 관리합니다.
+        확인일·확인자가 기록되어 신뢰도를 추적할 수 있습니다.</p>
+        <div class="field"><label>원본 템플릿</label><select class="select" id="lBase"></select></div>
+        <div class="form-row">
+          <div class="field"><label>지자체명 <span class="req">*</span></label><input class="input" id="lAuthority" placeholder="예: 수원시청"></div>
+          <div class="field"><label>확인자·방법</label><input class="input" id="lConfirmedBy" placeholder="예: 건축과 유선 확인"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnLocalizeSave">확인본 생성</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/checklist-templates.js"></script>
+  <script>
+    UI.init("checklists", "착공·준공 체크리스트");
+    UI.bindModalClose();
+    ChecklistTemplates.ensureStandard();
+
+    let kind = "착공";
+    let editingIdx = null;   // 항목 모달: null=신규 추가
+
+    function currentSiteId() { return document.getElementById("fSite").value; }
+    function currentChecklist() {
+      const siteId = currentSiteId();
+      if (!siteId) return null;
+      return Store.list("siteChecklists", (c) => c.siteId === siteId && c.kind === kind)[0] || null;
+    }
+
+    /* ---------- 필터 초기화 ---------- */
+    function initFilters() {
+      const sites = Store.list("sites");
+      document.getElementById("fSite").innerHTML =
+        sites.length ? UI.siteOptions(sites[0].id, "현장 선택") : `<option value="">현장 선택</option>`;
+      ["fGroup", "fStatus", "fSearch"].forEach((id) =>
+        document.getElementById(id).addEventListener("input", renderList));
+      document.getElementById("fSite").addEventListener("change", render);
+      document.querySelectorAll(".tab[data-kind]").forEach((t) =>
+        t.addEventListener("click", () => {
+          kind = t.dataset.kind;
+          document.querySelectorAll(".tab[data-kind]").forEach((x) =>
+            x.classList.toggle("active", x === t));
+          render();
+        }));
+    }
+
+    /* ---------- 렌더 ---------- */
+    function render() {
+      const siteId = currentSiteId();
+      document.getElementById("printTitle").textContent =
+        kind === "착공" ? "착 공 서 류 체 크 리 스 트" : "준 공 서 류 체 크 리 스 트";
+      if (!siteId) {
+        document.getElementById("summaryArea").innerHTML = "";
+        document.getElementById("listArea").innerHTML = `<div class="empty">
+          <div class="empty-icon">✅</div>
+          <p>현장을 먼저 등록하세요. 체크리스트는 현장 단위로 관리됩니다.</p>
+          <a class="btn primary" href="settings.html">설정에서 현장 등록</a></div>`;
+        return;
+      }
+      const cl = currentChecklist();
+      if (!cl) {
+        document.getElementById("summaryArea").innerHTML = "";
+        document.getElementById("listArea").innerHTML = `<div class="empty">
+          <div class="empty-icon">✅</div>
+          <p><b>${UI.esc(UI.siteName(siteId))}</b> 현장의 ${kind} 체크리스트가 없습니다.<br>
+          템플릿에서 시작하면 표준 항목이 채워집니다.</p>
+          <button class="btn primary" onclick="openStart()">템플릿에서 시작</button></div>`;
+        return;
+      }
+      renderSummary(cl);
+      renderGroupFilter(cl);
+      renderList();
+      document.getElementById("printSub").textContent =
+        `현장: ${UI.siteName(siteId)} · 출력일: ${UI.todayStr()} · 근거 템플릿: ${cl.templateName || "-"}`;
+    }
+
+    function renderSummary(cl) {
+      const p = ChecklistTemplates.progress(cl);
+      const today = UI.todayStr();
+      const soon = UI.addDays(today, 7);
+      const dueSoon = cl.items.filter((i) => i.status !== "완료" && i.status !== "해당없음" &&
+        i.dueDate && i.dueDate <= soon).length;
+      const rework = cl.items.filter((i) => i.status === "보완요청").length;
+      document.getElementById("summaryArea").innerHTML = `
+        <div class="kpi" style="grid-column:span 2">
+          <div class="kpi-label">진행률 (해당없음 제외)</div>
+          <div class="kpi-value">${p.done} / ${p.total}<span class="unit">건 · ${p.pct}%</span></div>
+          <div class="progress-bar mt-2"><div style="width:${p.pct}%"></div></div>
+        </div>
+        <div class="kpi ${dueSoon ? "warn" : ""}"><div class="kpi-label">기한 임박·경과 (7일)</div>
+          <div class="kpi-value">${dueSoon}<span class="unit">건</span></div></div>
+        <div class="kpi ${rework ? "danger" : ""}"><div class="kpi-label">보완요청</div>
+          <div class="kpi-value">${rework}<span class="unit">건</span></div></div>`;
+    }
+
+    function renderGroupFilter(cl) {
+      const sel = document.getElementById("fGroup");
+      const cur = sel.value;
+      const groups = [...new Set(cl.items.map((i) => i.group).filter(Boolean))];
+      sel.innerHTML = `<option value="">전체 그룹</option>` +
+        groups.map((g) => `<option ${g === cur ? "selected" : ""}>${UI.esc(g)}</option>`).join("");
+      document.getElementById("groupList").innerHTML =
+        groups.map((g) => `<option value="${UI.esc(g)}">`).join("");
+    }
+
+    function renderList() {
+      const cl = currentChecklist();
+      if (!cl) return;
+      const g = document.getElementById("fGroup").value;
+      const st = document.getElementById("fStatus").value;
+      const q = document.getElementById("fSearch").value.trim();
+      const today = UI.todayStr();
+      const rows = cl.items.map((it, idx) => ({ it, idx }))
+        .filter(({ it }) => (!g || it.group === g) && (!st || it.status === st) &&
+          (!q || it.title.includes(q)))
+        .map(({ it, idx }) => {
+          const overdue = it.status !== "완료" && it.status !== "해당없음" && it.dueDate && it.dueDate < today;
+          const doc = it.documentId ? Store.get("documents", it.documentId) : null;
+          return `
+          <tr class="${overdue ? "overdue" : ""} ${it.status === "해당없음" ? "na-row" : ""}" data-open="${idx}">
+            <td><select class="select status-select" data-status="${idx}">
+              ${["준비중","제출","보완요청","완료","해당없음"].map((s) =>
+                `<option ${s === it.status ? "selected" : ""}>${s}</option>`).join("")}
+            </select></td>
+            <td>${UI.esc(it.title)}
+              ${it.requiredWhen !== "항상" ? `<span class="badge gray">${UI.esc(it.requiredWhen)}</span>` : ""}</td>
+            <td class="small">${UI.esc(it.group || "-")}</td>
+            <td class="small">${UI.esc(it.agency || "-")}</td>
+            <td class="nowrap">${it.dueDate ? UI.fmtDate(it.dueDate) + " " +
+              (it.status !== "완료" && it.status !== "해당없음" ? UI.ddayBadge(it.dueDate) : "") : "-"}</td>
+            <td class="small">${doc ? "📎 " + UI.esc(doc.docNo || doc.title) : "-"}</td>
+            <td class="small">${UI.esc(UI.personName(it.ownerId))}</td>
+          </tr>`;
+        }).join("");
+      document.getElementById("listArea").innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>상태</th><th>항목</th><th>그룹</th><th>관할</th><th>기한</th><th>문서</th><th>담당</th></tr></thead>
+        <tbody>${rows || `<tr class="no-hover"><td colspan="7" class="center muted">조건에 맞는 항목이 없습니다.</td></tr>`}</tbody>
+      </table></div>`;
+      document.querySelectorAll("[data-open]").forEach((tr) =>
+        tr.addEventListener("click", () => openItem(parseInt(tr.dataset.open, 10))));
+      document.querySelectorAll("[data-status]").forEach((sel) => {
+        sel.addEventListener("click", (e) => e.stopPropagation());
+        sel.addEventListener("change", () => {
+          const cl2 = currentChecklist();
+          cl2.items[parseInt(sel.dataset.status, 10)].status = sel.value;
+          Store.update("siteChecklists", cl2.id, { items: cl2.items });
+          renderSummary(cl2);
+          renderList();
+        });
+      });
+    }
+
+    /* ---------- 시작 모달 ---------- */
+    function openStart() {
+      const templates = Store.list("checklistTemplates", (t) => t.kind === kind);
+      const sel = document.getElementById("startTemplate");
+      sel.innerHTML = templates.map((t) =>
+        `<option value="${t.id}">${UI.esc(t.name)} (${UI.esc(t.authority)})</option>`).join("");
+      const showMeta = () => {
+        const t = Store.get("checklistTemplates", sel.value);
+        document.getElementById("startTemplateMeta").textContent = t
+          ? `항목 ${t.items.length}개 · 확인일 ${t.confirmedAt || "-"} · ${t.confirmedBy || ""}` : "";
+      };
+      sel.onchange = showMeta;
+      showMeta();
+      document.getElementById("startTitle").textContent =
+        `${UI.siteName(currentSiteId())} — ${kind} 체크리스트 시작`;
+      UI.openModal("startModal");
+    }
+
+    document.getElementById("btnStartSave").addEventListener("click", () => {
+      const tid = document.getElementById("startTemplate").value;
+      if (!tid) { UI.toast("템플릿을 선택하세요.", "error"); return; }
+      ChecklistTemplates.instantiate(tid, currentSiteId());
+      UI.closeModal("startModal");
+      UI.toast("체크리스트를 생성했습니다. 항목별 기한·담당을 지정하세요.", "success");
+      render();
+    });
+
+    /* ---------- 항목 모달 ---------- */
+    function fillItemSelects(it = {}) {
+      document.getElementById("iOwner").innerHTML = UI.personOptions(it.ownerId, null, "담당 없음(본인)");
+      const docs = Store.list("documents", (d) => d.siteId === currentSiteId() || !d.siteId)
+        .sort((a, b) => (b.date || "") < (a.date || "") ? -1 : 1);
+      document.getElementById("iDocument").innerHTML = `<option value="">연결 안 함</option>` +
+        docs.map((d) => `<option value="${d.id}" ${d.id === it.documentId ? "selected" : ""}>
+          [${d.direction}] ${UI.esc(d.docNo || "")} ${UI.esc(d.title)}</option>`).join("");
+    }
+
+    function openItem(idx) {
+      const cl = currentChecklist();
+      const it = cl.items[idx];
+      editingIdx = idx;
+      document.getElementById("itemTitle").textContent = "항목 상세";
+      document.getElementById("btnItemDelete").classList.remove("hidden");
+      document.getElementById("iTitle").value = it.title;
+      document.getElementById("iGroup").value = it.group || "";
+      document.getElementById("iAgency").value = it.agency || "";
+      document.getElementById("iRequired").value = it.requiredWhen || "항상";
+      document.getElementById("iStatus").value = it.status;
+      document.getElementById("iDue").value = it.dueDate || "";
+      document.getElementById("iFormNote").value = it.formNote || "";
+      document.getElementById("iMemo").value = it.memo || "";
+      fillItemSelects(it);
+      UI.openModal("itemModal");
+    }
+
+    function openNewItem() {
+      const cl = currentChecklist();
+      if (!cl) { UI.toast("먼저 체크리스트를 생성하세요.", "error"); return; }
+      editingIdx = null;
+      document.getElementById("itemTitle").textContent = "항목 추가";
+      document.getElementById("btnItemDelete").classList.add("hidden");
+      ["iTitle", "iGroup", "iAgency", "iDue", "iFormNote", "iMemo"].forEach((id) =>
+        (document.getElementById(id).value = ""));
+      document.getElementById("iRequired").value = "항상";
+      document.getElementById("iStatus").value = "준비중";
+      fillItemSelects();
+      UI.openModal("itemModal");
+      document.getElementById("iTitle").focus();
+    }
+
+    document.getElementById("btnItemSave").addEventListener("click", () => {
+      const cl = currentChecklist();
+      const title = document.getElementById("iTitle").value.trim();
+      if (!title) { UI.toast("항목명을 입력하세요.", "error"); return; }
+      const data = {
+        title,
+        group: document.getElementById("iGroup").value.trim(),
+        agency: document.getElementById("iAgency").value.trim(),
+        requiredWhen: document.getElementById("iRequired").value,
+        status: document.getElementById("iStatus").value,
+        dueDate: document.getElementById("iDue").value || null,
+        ownerId: document.getElementById("iOwner").value || null,
+        documentId: document.getElementById("iDocument").value || null,
+        formNote: document.getElementById("iFormNote").value.trim(),
+        memo: document.getElementById("iMemo").value.trim(),
+      };
+      if (editingIdx === null) cl.items.push(data);
+      else cl.items[editingIdx] = { ...cl.items[editingIdx], ...data };
+      Store.update("siteChecklists", cl.id, { items: cl.items });
+      UI.closeModal("itemModal");
+      UI.toast(editingIdx === null ? "항목을 추가했습니다." : "저장했습니다.", "success");
+      render();
+    });
+
+    document.getElementById("btnItemDelete").addEventListener("click", () => {
+      const cl = currentChecklist();
+      if (editingIdx !== null && confirm("이 항목을 삭제할까요?")) {
+        cl.items.splice(editingIdx, 1);
+        Store.update("siteChecklists", cl.id, { items: cl.items });
+        UI.closeModal("itemModal");
+        UI.toast("삭제했습니다.");
+        render();
+      }
+    });
+
+    /* ---------- 지자체 확인본 ---------- */
+    document.getElementById("btnLocalize").addEventListener("click", () => {
+      const templates = Store.list("checklistTemplates");
+      document.getElementById("lBase").innerHTML = templates.map((t) =>
+        `<option value="${t.id}">${UI.esc(t.name)} (${UI.esc(t.authority)})</option>`).join("");
+      document.getElementById("lAuthority").value = "";
+      document.getElementById("lConfirmedBy").value = "";
+      UI.openModal("localizeModal");
+    });
+
+    document.getElementById("btnLocalizeSave").addEventListener("click", () => {
+      const authority = document.getElementById("lAuthority").value.trim();
+      if (!authority) { UI.toast("지자체명을 입력하세요.", "error"); return; }
+      const t = ChecklistTemplates.localize(
+        document.getElementById("lBase").value, authority,
+        document.getElementById("lConfirmedBy").value.trim());
+      UI.closeModal("localizeModal");
+      UI.toast(`"${t.name}" 템플릿을 만들었습니다. 이후 시작 시 선택할 수 있습니다.`, "success");
+    });
+
+    document.getElementById("btnAddItem").addEventListener("click", openNewItem);
+
+    initFilters();
+    render();
+  </script>
+</body>
+</html>

@@ -7,12 +7,15 @@
 
 ```js
 {
-  schemaVersion: 1,
-  meta: { appVersion: "0.1.0", owner: "", ownerRank: "", exportedAt: null },
+  schemaVersion: 2,
+  meta: { appVersion: "0.2.0", owner: "", ownerRank: "", exportedAt: null },
   sites: [], people: [], tasks: [], documents: [],
-  events: [], reports: [], drawings: [], measurements: []
+  events: [], reports: [], drawings: [], measurements: [],
+  checklistTemplates: [], siteChecklists: [], subcontracts: []   // v2 추가
 }
 ```
+
+**v1 → v2 마이그레이션**: 세 컬렉션을 빈 배열로 추가. 기존 데이터 무변경.
 
 공통 필드: 모든 엔티티는 `id`(uuid), `createdAt`, `updatedAt`(ISO 8601)을 가진다.
 
@@ -113,6 +116,43 @@
 | unit | string | `㎡` 또는 `m` |
 | scale | object | 축척 보정값 { pxPerMeter } |
 | points | array | 화면 좌표 배열 |
+
+### ChecklistTemplate (체크리스트 템플릿) — v2
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| name | string | 예: "표준 착공", "수원시청 착공 2026-07 확인본" |
+| kind | enum | `착공` `준공` |
+| authority | string | `표준` 또는 지자체명 |
+| confirmedAt / confirmedBy | date/string | 요건 확인일·확인자 (신뢰도 메타) |
+| builtin | boolean | 내장 표준 템플릿 여부 (수정 시 복제 유도) |
+| items | array | `{ title, group(인허가/안전·환경/계약·인력/현장준비/감리/검사증명/환경·설비/마감/사후), agency, requiredWhen(항상/대상공사/해당시), formNote }` |
+
+### SiteChecklist (현장 체크리스트 인스턴스) — v2
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| siteId | uuid | 현장 |
+| templateId | uuid | 원본 템플릿 (스냅샷 복사 — 이후 템플릿 변경 영향 없음) |
+| kind | enum | `착공` `준공` |
+| items | array | `{ title, group, agency, requiredWhen, status(해당없음/준비중/제출/보완요청/완료), dueDate, documentId(문서대장 연결), ownerId, memo }` |
+
+- 진행률 = (제출+완료) / (전체 − 해당없음).
+- `dueDate` 있는 미완료 항목은 캘린더·대시보드의 "서류·통보기한" 소스에 합산.
+
+### Subcontract (하도급·키스콘) — v2
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| siteId | uuid | 현장 |
+| company | string | 하수급 업체명 |
+| trade | string | 공종 |
+| amount | number | 하도급 금액 (원) |
+| contractDate | date | 계약 체결일 |
+| checks | object | 조건 점검 `{ license, noWholeSub, noReSub, bond, standardForm, fairness }` — 각 `확인`/`해당없음`/`미확인` |
+| kisconDueDate | date | 통보기한 = 계약일 + 30일 (자동, 수정 가능) |
+| kisconNotifiedAt | date | 통보 완료일 |
+| status | enum | `검토중` `계약` `통보완료` `변경통보필요` |
+| memo | string | 비고 |
+
+- `kisconDueDate` 미통보 건은 캘린더·대시보드 기한 소스에 합산.
 
 ## Supabase 이관 매핑 (연말)
 

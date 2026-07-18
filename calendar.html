@@ -28,6 +28,7 @@
           <label class="small flex"><input type="checkbox" id="srcEvents" checked> 일정</label>
           <label class="small flex"><input type="checkbox" id="srcTasks" checked> 업무 마감</label>
           <label class="small flex"><input type="checkbox" id="srcDocs" checked> 회신기한</label>
+          <label class="small flex"><input type="checkbox" id="srcChecklists" checked> 서류·통보기한</label>
         </div>
         <div class="mt-4" id="calWrap"></div>
         <div class="small muted mt-2">
@@ -38,6 +39,7 @@
           <span class="badge" style="background:var(--c-ev-etc);color:#fff">기타</span>
           <span class="badge navy">업무 마감</span>
           <span class="badge orange">회신기한</span>
+          <span class="badge red">서류·통보기한</span>
         </div>
       </div>
 
@@ -127,6 +129,21 @@
         Store.list("documents", (d) => d.status !== "완료" && (d.dueDate || "").startsWith(ymPrefix)).forEach((d) =>
           items.push({ date: d.dueDate, kind: "doc", id: d.id, label: `[회신] ${d.title}`, color: "var(--c-warn)", siteId: d.siteId }));
       }
+      if (document.getElementById("srcChecklists").checked) {
+        // 착공·준공 체크리스트 항목 기한
+        Store.list("siteChecklists").forEach((cl) =>
+          (cl.items || []).forEach((it) => {
+            if (it.status !== "완료" && it.status !== "해당없음" &&
+                (it.dueDate || "").startsWith(ymPrefix)) {
+              items.push({ date: it.dueDate, kind: "checklist", id: cl.id,
+                label: `[${cl.kind}] ${it.title}`, color: "var(--c-danger)", siteId: cl.siteId });
+            }
+          }));
+        // 키스콘 통보기한 (미통보)
+        Store.list("subcontracts", (s) => !s.kisconNotifiedAt && (s.kisconDueDate || "").startsWith(ymPrefix))
+          .forEach((s) => items.push({ date: s.kisconDueDate, kind: "kiscon", id: s.id,
+            label: `[키스콘] ${s.company} 통보기한`, color: "var(--c-danger)", siteId: s.siteId }));
+      }
       return items;
     }
 
@@ -191,14 +208,21 @@
         document.getElementById("dayList").innerHTML = `<p class="muted small">이 날짜의 항목이 없습니다.</p>`;
         return;
       }
+      const KIND_INFO = {
+        task: { tag: "업무", href: "tasks.html" },
+        doc: { tag: "회신", href: "documents.html" },
+        checklist: { tag: "서류", href: "checklists.html" },
+        kiscon: { tag: "키스콘", href: "subcontracts.html" },
+      };
       document.getElementById("dayList").innerHTML = items.map((it) => {
         const site = it.siteId ? ` <span class="muted small">· ${UI.esc(UI.siteName(it.siteId))}</span>` : "";
+        const info = KIND_INFO[it.kind];
         const editBtn = it.kind === "event"
           ? `<button class="btn sm ghost" data-edit="${it.id}">수정</button>`
-          : `<a class="btn sm ghost" href="${it.kind === "task" ? "tasks.html" : "documents.html"}">바로가기</a>`;
+          : `<a class="btn sm ghost" href="${info.href}">바로가기</a>`;
         return `<div class="flex" style="padding:6px 0;border-bottom:1px solid var(--c-border)">
-          <span class="badge" style="background:${it.color};color:#fff">${it.kind === "event" ? UI.esc(it.type) : it.kind === "task" ? "업무" : "회신"}</span>
-          <span class="grow">${UI.esc(it.label.replace(/^\[(업무|회신)\] /, ""))}${site}</span>
+          <span class="badge" style="background:${it.color};color:#fff">${it.kind === "event" ? UI.esc(it.type) : info.tag}</span>
+          <span class="grow">${UI.esc(it.label.replace(/^\[[^\]]+\] /, ""))}${site}</span>
           ${editBtn}
         </div>`;
       }).join("");

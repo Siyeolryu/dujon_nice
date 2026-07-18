@@ -126,6 +126,9 @@ flowchart LR
 | `sites.html` | 현장·소장 배정현황 (카카오맵, 30km 판정) |
 | `drawings.html` | 도면 모듈 (뷰어·측정·OCR·비교) |
 | `settings.html` | 백업/복원, 기초정보, API 키, 내 정보 |
+| `checklists.html` | 착공·준공 체크리스트 (템플릿→인스턴스, 진행률, 인쇄) |
+| `subcontracts.html` | 하도급·키스콘 (조건 점검 위저드, 통보기한 D-30) |
+| `assets/js/checklist-templates.js` | 내장 표준 템플릿·인스턴스 생성·진행률 |
 | `assets/js/store.js` | 정형 데이터 계층 (계약 인터페이스) |
 | `assets/js/files.js` | 파일 데이터 계층 (IndexedDB) |
 | `assets/js/ui.js` | 공통 UI (사이드바·모달·토스트·날짜) |

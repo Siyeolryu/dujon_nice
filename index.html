@@ -68,6 +68,16 @@
       const ym = today.slice(0, 7);
       const billingCnt = events.filter((e) => e.type === "기성청구" && (e.date || "").startsWith(ym)).length;
 
+      // 서류·통보기한 (체크리스트 + 키스콘, 7일 내 또는 경과)
+      const soonLimit = UI.addDays(today, 7);
+      let paperDue = 0;
+      Store.list("siteChecklists").forEach((cl) =>
+        (cl.items || []).forEach((it) => {
+          if (it.status !== "완료" && it.status !== "해당없음" && it.dueDate && it.dueDate <= soonLimit) paperDue++;
+        }));
+      Store.list("subcontracts", (s) => !s.kisconNotifiedAt && s.kisconDueDate && s.kisconDueDate <= soonLimit)
+        .forEach(() => paperDue++);
+
       /* ---------- 마감 임박 업무 (오늘~7일 + 지연) ---------- */
       const soonEnd = UI.addDays(today, 7);
       const urgent = tasks
@@ -81,6 +91,16 @@
         .forEach((e) => upcoming.push({ date: e.date, label: e.title, tag: e.type, cls: "navy" }));
       docs.filter((dd) => dd.status !== "완료" && dd.dueDate && dd.dueDate >= today && dd.dueDate <= soonEnd)
         .forEach((dd) => upcoming.push({ date: dd.dueDate, label: `${dd.title} 회신`, tag: "회신기한", cls: "orange" }));
+      Store.list("siteChecklists").forEach((cl) =>
+        (cl.items || []).forEach((it) => {
+          if (it.status !== "완료" && it.status !== "해당없음" &&
+              it.dueDate && it.dueDate >= today && it.dueDate <= soonEnd) {
+            upcoming.push({ date: it.dueDate, label: `${it.title} (${cl.kind})`, tag: "서류기한", cls: "red" });
+          }
+        }));
+      Store.list("subcontracts", (s) => !s.kisconNotifiedAt && s.kisconDueDate &&
+        s.kisconDueDate >= today && s.kisconDueDate <= soonEnd)
+        .forEach((s) => upcoming.push({ date: s.kisconDueDate, label: `키스콘 통보 — ${s.company}`, tag: "키스콘", cls: "red" }));
       upcoming.sort((a, b) => (a.date < b.date ? -1 : 1));
 
       /* ---------- 최근 문서 5건 ---------- */
@@ -93,6 +113,7 @@
           <div class="kpi ${overdue ? "danger" : ""}"><div class="kpi-label">지연 업무</div><div class="kpi-value">${overdue}<span class="unit">건</span></div></div>
           <div class="kpi ${waitingDocs ? "warn" : ""}"><div class="kpi-label">회신대기 문서</div><div class="kpi-value">${waitingDocs}<span class="unit">건</span></div></div>
           <div class="kpi"><div class="kpi-label">이번 달 기성청구 일정</div><div class="kpi-value">${billingCnt}<span class="unit">건</span></div></div>
+          <div class="kpi ${paperDue ? "danger" : ""}"><div class="kpi-label">서류·통보기한 (7일)</div><div class="kpi-value">${paperDue}<span class="unit">건</span></div></div>
         </div>
 
         <div class="grid-2 mt-4">

@@ -19,7 +19,8 @@ const UI = (() => {
       group: "문서·계약",
       items: [
         { key: "documents", href: "documents.html", label: "문서 관리대장", icon: "📄" },
-        { key: "contracts", label: "계약·외주 관리", icon: "📑", soon: true },
+        { key: "checklists", href: "checklists.html", label: "착공·준공 체크리스트", icon: "✅" },
+        { key: "subcontracts", href: "subcontracts.html", label: "하도급·키스콘", icon: "📑" },
         { key: "permits", label: "인허가·민원", icon: "🏛️", soon: true },
       ],
     },
@@ -165,6 +166,10 @@ const UI = (() => {
     "수신": "navy", "발신": "blue",
     // Site
     "예정": "gray", "진행중": "blue", "준공": "green",
+    // Checklist (계획서 4-2: 해당없음/준비중/제출/보완요청/완료)
+    "해당없음": "gray", "준비중": "blue", "제출": "navy", "보완요청": "orange",
+    // Subcontract
+    "검토중": "gray", "계약": "blue", "통보완료": "green", "변경통보필요": "red",
   };
   function badge(value) {
     if (!value) return "";

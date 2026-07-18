@@ -7,16 +7,17 @@
 
 const Store = (() => {
   const KEY = "dujon.db";
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 2;
   const COLLECTIONS = [
     "sites", "people", "tasks", "documents",
     "events", "reports", "drawings", "measurements",
+    "checklistTemplates", "siteChecklists", "subcontracts", // v2
   ];
 
   function emptyDB() {
     const db = {
       schemaVersion: SCHEMA_VERSION,
-      meta: { appVersion: "0.1.0", owner: "", ownerRank: "", kakaoKey: "", exportedAt: null },
+      meta: { appVersion: "0.2.0", owner: "", ownerRank: "", kakaoKey: "", exportedAt: null },
     };
     COLLECTIONS.forEach((c) => (db[c] = []));
     return db;
@@ -25,7 +26,13 @@ const Store = (() => {
   /* 스키마 변경 시: SCHEMA_VERSION 증가 + 여기에 마이그레이션 케이스 추가 (RULES.md §2) */
   function migrate(db) {
     if (!db.schemaVersion) db.schemaVersion = 1;
-    // switch (db.schemaVersion) { case 1: ...; db.schemaVersion = 2; }
+    if (db.schemaVersion === 1) {
+      // v1 → v2: 체크리스트·하도급 컬렉션 추가 (기존 데이터 무변경)
+      db.checklistTemplates = db.checklistTemplates || [];
+      db.siteChecklists = db.siteChecklists || [];
+      db.subcontracts = db.subcontracts || [];
+      db.schemaVersion = 2;
+    }
     COLLECTIONS.forEach((c) => { if (!Array.isArray(db[c])) db[c] = []; });
     if (!db.meta) db.meta = emptyDB().meta;
     return db;

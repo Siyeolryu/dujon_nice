@@ -46,7 +46,7 @@ version: 0.1.0
 ```
 
 - 스크립트 로드 순서: `store.js` → `ui.js` → (페이지 로직). 경로는 항상 상대 경로.
-- 페이지키: home/tasks/report/calendar/documents/sites/drawings/settings
+- 페이지키: home/tasks/report/calendar/documents/checklists/subcontracts/sites/drawings/settings
 
 ## 토큰 요약 (base.css)
 
