@@ -60,5 +60,6 @@ version: 0.1.0
 
 - **`references/terminology.md`** — 공무 용어 상세 사전 (용어별 정의·오용 사례)
 - **`references/report-formats.md`** — 주간보고·일일보고 표준 양식과 문장 톤 예시
+- **`references/compliance-checklists.md`** — 착공·준공·하도급(키스콘) 규정 지식 (체크리스트 모듈 근거)
 
 실무 피드백(M6 단계)으로 새 용어·양식을 알게 되면 references에 추가해 축적한다.
