@@ -14,7 +14,7 @@
 | M4 | 2026-07 | 도면 모듈 (뷰어·측정·OCR·비교) | 완료 (07-18) |
 | M5 | 2026-07~08 | 검증 → GitHub Pages 배포 → 상급자 공유 | 진행중 (Pages 활성화 대기) |
 | M6 | 2026-08~09 | 피드백 반영, 보고서 양식 조정, 기성청구 일정 자동화, gongmu-domain 스킬에 실무 지식 축적 | 예정 |
-| M6a | 2026-08 | **착공·준공·키스콘 체크리스트 모듈** (계획: docs/plans/checklist-module.md) | 계획 수립 |
+| M6a | 2026-07 | **착공·준공·키스콘 체크리스트 모듈** (계획: docs/plans/checklist-module.md) | 완료 (07-18) |
 | M6b | 2026-08~09 | **도면 불일치 검토 세션** — 대조 매트릭스 C1~C8, 분할 뷰, RFI 질의서 (계획: docs/plans/drawing-estimation.md) | 계획 수립 |
 | M6c | 2026-09~10 | **적산 정밀화** — 실(Room) 구조화, 물량산출서, 요율 마스터·견적서 (계획: docs/plans/drawing-estimation.md) | 계획 수립 |
 | M7 | 2026-10~11 | Supabase 어댑터(store/files 교체), Auth, 도면 파일 서버 보관, JSON 백업 → DB 시딩 | 예정 |
