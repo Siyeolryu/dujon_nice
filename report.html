@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>업무보고 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+  <style>
+    /* report 전용 표현은 components 확장으로 최소화 */
+    .report-site-block { margin-bottom: var(--sp-5); }
+    .report-site-title { font-weight: 800; font-size: var(--fs-md); margin-bottom: var(--sp-2); }
+    .report-sec-title { font-weight: 700; margin: var(--sp-2) 0 var(--sp-1); }
+    .report-line {
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      line-height: 1.7;
+    }
+    .report-line:hover { background: var(--c-primary-soft); }
+    .report-line:focus { outline: 2px solid var(--c-accent); background: var(--c-surface); }
+    .report-line.placeholder { color: var(--c-text-faint); }
+    @media print {
+      .report-line { padding: 0; }
+      .report-site-title { font-size: 12pt; margin-top: 4mm; }
+    }
+  </style>
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>업무보고</h1>
+      <span class="sub">업무 데이터로 보고서 자동 생성</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btnCopy">텍스트 복사</button>
+      <button class="btn" id="btnXlsx">XLSX</button>
+      <button class="btn" onclick="window.print()">인쇄</button>
+      <button class="btn primary" id="btnSaveReport">보고서 저장</button>
+    </div>
+    <div class="content">
+      <div class="card card-pad no-print">
+        <div class="filters">
+          <select class="select" id="rType">
+            <option value="주간">주간보고</option>
+            <option value="일일">일일보고</option>
+          </select>
+          <input class="input" id="rDate" type="date">
+          <span class="small muted" id="rPeriodLabel"></span>
+          <select class="select" id="rSite"></select>
+          <button class="btn primary" id="btnGen">보고서 생성</button>
+          <span class="spacer grow"></span>
+          <select class="select" id="savedList"></select>
+          <button class="btn sm" id="btnLoadSaved">불러오기</button>
+          <button class="btn sm danger" id="btnDeleteSaved">삭제</button>
+        </div>
+        <p class="small muted mt-2">생성 후 각 줄을 클릭해 문구를 다듬을 수 있습니다. 인쇄하면 결재란이 포함된 A4 양식으로 출력됩니다.</p>
+      </div>
+
+      <!-- 인쇄 헤더 -->
+      <div class="print-only">
+        <div class="print-header">
+          <div>
+            <div class="print-title" id="printTitle">주 간 업 무 보 고</div>
+            <div class="print-sub" id="printPeriod"></div>
+            <div class="print-sub" id="printAuthor"></div>
+          </div>
+          <table class="approval">
+            <tr><th>담당</th><th>팀장</th><th>부장</th></tr>
+            <tr><td></td><td></td><td></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-body" id="reportBody">
+          <div class="empty">
+            <div class="empty-icon">📝</div>
+            <p>기간을 선택하고 <b>보고서 생성</b>을 누르세요.<br>
+            업무 보드의 완료·진행 업무와 문서·일정이 자동으로 정리됩니다.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    UI.init("report", "업무보고");
+    UI.bindModalClose();
+
+    let current = null; // { type, periodStart, periodEnd, sections: [{siteName, actual[], plan[], notes[]}] }
+
+    /* ---------- 기간 계산 ---------- */
+    function getPeriod() {
+      const type = document.getElementById("rType").value;
+      const base = document.getElementById("rDate").value || UI.todayStr();
+      if (type === "일일") return { start: base, end: base };
+      return UI.weekRange(base);
+    }
+
+    function updatePeriodLabel() {
+      const p = getPeriod();
+      const type = document.getElementById("rType").value;
+      document.getElementById("rPeriodLabel").textContent =
+        type === "일일" ? `보고일자: ${p.start}` : `보고기간: ${p.start} ~ ${p.end}`;
+    }
+
+    /* ---------- 문구 생성 규칙 (references/report-formats.md) ---------- */
+    function lineDone(t) { return `${t.title} 완료 (${UI.fmtShort(t.completedAt || t.dueDate)})`; }
+    function lineDoing(t) { return `${t.title} 진행 중`; }
+    function linePlan(t) { return t.dueDate ? `${t.title} (기한 ${UI.fmtShort(t.dueDate)})` : t.title; }
+    function lineWaitDoc(dd) {
+      const from = dd.counterpart ? `${dd.counterpart} ` : "";
+      const no = dd.docNo ? `(${dd.docNo})` : "";
+      const due = dd.dueDate ? ` 회신기한 ${UI.fmtShort(dd.dueDate)}` : "";
+      return `${from}공문${no}${due} — 회신대기`;
+    }
+    function lineEvent(e) { return `${e.title} (${UI.fmtShort(e.date)})`; }
+    function lineOverdue(t) { return `${t.title} 지연 (기한 ${UI.fmtShort(t.dueDate)} 경과)`; }
+
+    /* ---------- 보고서 데이터 생성 ---------- */
+    function generate() {
+      const type = document.getElementById("rType").value;
+      const p = getPeriod();
+      const siteFilter = document.getElementById("rSite").value;
+      const nextP = type === "주간"
+        ? { start: UI.addDays(p.start, 7), end: UI.addDays(p.end, 7) }
+        : { start: UI.addDays(p.start, 1), end: UI.addDays(p.start, 1) };
+
+      const inSite = (x) => !siteFilter || x.siteId === siteFilter;
+      const tasks = Store.list("tasks", inSite);
+      const docs = Store.list("documents", inSite);
+      const events = Store.list("events", inSite);
+
+      // 실적: 기간 내 완료 + 진행 중
+      const done = tasks.filter((t) => t.status === "완료" && t.completedAt &&
+        t.completedAt.slice(0, 10) >= p.start && t.completedAt.slice(0, 10) <= p.end);
+      const doing = tasks.filter((t) => t.status === "진행");
+      // 계획: 차기 기간 마감 + 대기 업무
+      const planned = tasks.filter((t) => t.status !== "완료" &&
+        ((t.dueDate && t.dueDate >= nextP.start && t.dueDate <= nextP.end) ||
+         (t.status === "대기" && (!t.dueDate || t.dueDate >= nextP.start))));
+      // 특이사항
+      const waiting = docs.filter((dd) => dd.status === "회신대기");
+      const periodEvents = events.filter((e) => e.date >= p.start && e.date <= nextP.end &&
+        (e.type === "기성청구" || e.type === "계약마감" || e.type === "입찰"));
+      const overdueTasks = tasks.filter((t) => t.status !== "완료" && t.dueDate && t.dueDate < UI.todayStr());
+
+      // 현장별 그룹핑 (공통은 마지막)
+      const siteIds = [...new Set([
+        ...done.map((t) => t.siteId), ...doing.map((t) => t.siteId), ...planned.map((t) => t.siteId),
+        ...waiting.map((d2) => d2.siteId), ...periodEvents.map((e) => e.siteId), ...overdueTasks.map((t) => t.siteId),
+      ])];
+      const orderedIds = siteIds.filter((id) => id).concat(siteIds.includes(null) || siteIds.includes(undefined) ? [null] : []);
+
+      const sections = orderedIds.map((sid) => {
+        const bySite = (x) => (x.siteId || null) === sid;
+        return {
+          siteName: sid ? UI.siteName(sid) : "공통·본사 업무",
+          actual: [...done.filter(bySite).map(lineDone), ...doing.filter(bySite).map(lineDoing)],
+          plan: planned.filter(bySite).map(linePlan),
+          notes: [
+            ...waiting.filter(bySite).map(lineWaitDoc),
+            ...periodEvents.filter(bySite).map(lineEvent),
+            ...overdueTasks.filter(bySite).map(lineOverdue),
+          ],
+        };
+      }).filter((s) => s.actual.length || s.plan.length || s.notes.length);
+
+      current = { type, periodStart: p.start, periodEnd: p.end, sections };
+      renderReport();
+      if (!sections.length) UI.toast("해당 기간에 정리할 업무·문서·일정이 없습니다.", "error");
+    }
+
+    /* ---------- 렌더 (줄 단위 인라인 편집) ---------- */
+    function secTitles(type) {
+      return type === "일일"
+        ? ["1. 금일 실적", "2. 명일 계획", "3. 특이사항"]
+        : ["1. 금주 실적", "2. 차주 계획", "3. 특이사항"];
+    }
+
+    function renderReport() {
+      const body = document.getElementById("reportBody");
+      if (!current || !current.sections.length) {
+        body.innerHTML = `<div class="empty"><div class="empty-icon">📝</div>
+          <p>생성된 내용이 없습니다. 기간을 바꾸거나 업무를 먼저 등록하세요.</p></div>`;
+        updatePrintHeader();
+        return;
+      }
+      const [t1, t2, t3] = secTitles(current.type);
+      body.innerHTML = current.sections.map((sec, si) => `
+        <div class="report-site-block" data-si="${si}">
+          <div class="report-site-title">■ ${UI.esc(sec.siteName)}</div>
+          ${[["actual", t1], ["plan", t2], ["notes", t3]].map(([key, title]) => `
+            <div class="report-sec-title">${title}</div>
+            ${(sec[key].length ? sec[key] : ["해당 없음"]).map((line, li) => `
+              <div class="report-line" contenteditable="true" data-key="${key}" data-li="${li}">- ${UI.esc(line)}</div>`).join("")}
+          `).join("")}
+        </div>`).join("");
+      updatePrintHeader();
+    }
+
+    /* 편집 내용을 current에 반영 */
+    function syncEdits() {
+      if (!current) return;
+      document.querySelectorAll(".report-site-block").forEach((block) => {
+        const si = parseInt(block.dataset.si, 10);
+        const acc = { actual: [], plan: [], notes: [] };
+        block.querySelectorAll(".report-line").forEach((line) => {
+          const text = line.textContent.replace(/^-\s*/, "").trim();
+          if (text && text !== "해당 없음") acc[line.dataset.key].push(text);
+        });
+        Object.assign(current.sections[si], acc);
+      });
+    }
+
+    function updatePrintHeader() {
+      const meta = Store.getMeta();
+      const type = current ? current.type : document.getElementById("rType").value;
+      document.getElementById("printTitle").textContent =
+        type === "일일" ? "일 일 업 무 보 고" : "주 간 업 무 보 고";
+      const p = current
+        ? { start: current.periodStart, end: current.periodEnd }
+        : getPeriod();
+      document.getElementById("printPeriod").textContent =
+        type === "일일" ? `보고일자: ${p.start}` : `보고기간: ${p.start} ~ ${p.end}`;
+      document.getElementById("printAuthor").textContent =
+        `소속: 공사부 공무팀 · 직급: ${meta.ownerRank || "-"} · 성명: ${meta.owner || "-"}`;
+    }
+
+    /* ---------- 텍스트 복사 ---------- */
+    function toPlainText() {
+      if (!current) return "";
+      syncEdits();
+      const meta = Store.getMeta();
+      const [t1, t2, t3] = secTitles(current.type);
+      const head = current.type === "일일"
+        ? `[일일 업무보고] ${current.periodStart}`
+        : `[주간 업무보고] ${current.periodStart} ~ ${current.periodEnd}`;
+      const who = `공사부 공무팀 ${meta.ownerRank || ""} ${meta.owner || ""}`.trim();
+      const blocks = current.sections.map((sec) => {
+        const part = (title, arr) => arr.length ? `  ${title}\n` + arr.map((l) => `    - ${l}`).join("\n") : "";
+        return [`■ ${sec.siteName}`, part(t1, sec.actual), part(t2, sec.plan), part(t3, sec.notes)]
+          .filter(Boolean).join("\n");
+      });
+      return [head, who, "", ...blocks].join("\n");
+    }
+
+    document.getElementById("btnCopy").addEventListener("click", async () => {
+      if (!current) { UI.toast("먼저 보고서를 생성하세요.", "error"); return; }
+      try {
+        await navigator.clipboard.writeText(toPlainText());
+        UI.toast("보고서 텍스트를 복사했습니다. 메신저·메일에 붙여넣으세요.", "success");
+      } catch {
+        UI.toast("복사에 실패했습니다. 브라우저 권한을 확인하세요.", "error");
+      }
+    });
+
+    /* ---------- XLSX ---------- */
+    document.getElementById("btnXlsx").addEventListener("click", () => {
+      if (!current) { UI.toast("먼저 보고서를 생성하세요.", "error"); return; }
+      if (!UI.requireLib("XLSX", "엑셀(SheetJS)")) return;
+      syncEdits();
+      const [t1, t2, t3] = secTitles(current.type);
+      const rows = [];
+      current.sections.forEach((sec) => {
+        sec.actual.forEach((l) => rows.push({ 현장: sec.siteName, 구분: t1.slice(3), 내용: l }));
+        sec.plan.forEach((l) => rows.push({ 현장: sec.siteName, 구분: t2.slice(3), 내용: l }));
+        sec.notes.forEach((l) => rows.push({ 현장: sec.siteName, 구분: t3.slice(3), 내용: l }));
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, current.type + "보고");
+      XLSX.writeFile(wb, `${current.type}업무보고_${current.periodStart}.xlsx`);
+    });
+
+    /* ---------- 저장/불러오기 ---------- */
+    function refreshSavedList() {
+      const reports = Store.list("reports").sort((a, b) => (b.generatedAt || "") < (a.generatedAt || "") ? -1 : 1);
+      document.getElementById("savedList").innerHTML =
+        `<option value="">저장된 보고서 (${reports.length})</option>` +
+        reports.map((r) => `<option value="${r.id}">[${r.type}] ${r.periodStart}${r.type === "주간" ? "~" + r.periodEnd.slice(5) : ""}</option>`).join("");
+    }
+
+    document.getElementById("btnSaveReport").addEventListener("click", () => {
+      if (!current) { UI.toast("먼저 보고서를 생성하세요.", "error"); return; }
+      syncEdits();
+      Store.add("reports", {
+        type: current.type,
+        periodStart: current.periodStart,
+        periodEnd: current.periodEnd,
+        generatedAt: new Date().toISOString(),
+        sections: current.sections,
+      });
+      refreshSavedList();
+      UI.toast("보고서를 저장했습니다. 목록에서 다시 열 수 있습니다.", "success");
+    });
+
+    document.getElementById("btnLoadSaved").addEventListener("click", () => {
+      const id = document.getElementById("savedList").value;
+      if (!id) { UI.toast("불러올 보고서를 선택하세요.", "error"); return; }
+      const r = Store.get("reports", id);
+      if (!r) return;
+      current = { type: r.type, periodStart: r.periodStart, periodEnd: r.periodEnd, sections: JSON.parse(JSON.stringify(r.sections)) };
+      document.getElementById("rType").value = r.type;
+      document.getElementById("rDate").value = r.periodStart;
+      updatePeriodLabel();
+      renderReport();
+      UI.toast("저장된 보고서를 불러왔습니다.");
+    });
+
+    document.getElementById("btnDeleteSaved").addEventListener("click", () => {
+      const id = document.getElementById("savedList").value;
+      if (!id) { UI.toast("삭제할 보고서를 선택하세요.", "error"); return; }
+      if (confirm("저장된 보고서를 삭제할까요?")) {
+        Store.remove("reports", id);
+        refreshSavedList();
+        UI.toast("삭제했습니다.");
+      }
+    });
+
+    /* ---------- 초기화 ---------- */
+    document.getElementById("rDate").value = UI.todayStr();
+    document.getElementById("rSite").innerHTML = UI.siteOptions("", "전체 현장");
+    document.getElementById("rType").addEventListener("change", updatePeriodLabel);
+    document.getElementById("rDate").addEventListener("change", updatePeriodLabel);
+    document.getElementById("btnGen").addEventListener("click", generate);
+    updatePeriodLabel();
+    updatePrintHeader();
+    refreshSavedList();
+  </script>
+</body>
+</html>
