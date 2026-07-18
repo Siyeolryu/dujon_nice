@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>문서 관리대장 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>공문·문서 관리대장</h1>
+      <span class="sub">수신·발신 문서 접수와 처리 현황</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btnXlsx">XLSX</button>
+      <button class="btn" onclick="window.print()">인쇄</button>
+      <button class="btn primary" id="btnNew">+ 문서 등록</button>
+    </div>
+    <div class="content">
+      <!-- 인쇄 헤더 -->
+      <div class="print-only">
+        <div class="print-header">
+          <div>
+            <div class="print-title">문 서 관 리 대 장</div>
+            <div class="print-sub" id="printSub"></div>
+          </div>
+          <table class="approval">
+            <tr><th>담당</th><th>팀장</th><th>부장</th></tr>
+            <tr><td></td><td></td><td></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="filters no-print">
+        <input class="input" id="fSearch" type="search" placeholder="제목·문서번호·상대처 검색">
+        <select class="select" id="fYear"></select>
+        <select class="select" id="fDirection">
+          <option value="">수신+발신</option><option>수신</option><option>발신</option>
+        </select>
+        <select class="select" id="fType">
+          <option value="">전체 종류</option>
+          <option>공문</option><option>계약서류</option><option>기성서류</option>
+          <option>인허가</option><option>민원</option><option>기타</option>
+        </select>
+        <select class="select" id="fStatus">
+          <option value="">전체 상태</option>
+          <option>접수</option><option>처리중</option><option>회신대기</option><option>완료</option>
+        </select>
+        <select class="select" id="fSite"></select>
+      </div>
+
+      <div class="card mt-4" id="ledgerWrap"></div>
+    </div>
+  </div>
+
+  <!-- 문서 등록/수정 모달 -->
+  <div class="modal-backdrop" id="docModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">문서 등록</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field">
+            <label>수신/발신 <span class="req">*</span></label>
+            <select class="select" id="mDirection"><option>수신</option><option>발신</option></select>
+          </div>
+          <div class="field">
+            <label>문서번호</label>
+            <input class="input" id="mDocNo" placeholder="제2026-001호">
+          </div>
+          <div class="field">
+            <label>일자 <span class="req">*</span></label>
+            <input class="input" id="mDate" type="date">
+          </div>
+        </div>
+        <div class="field">
+          <label>제목 <span class="req">*</span></label>
+          <input class="input" id="mTitle" placeholder="예: 착공계 보완서류 제출 요청">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label id="counterpartLabel">발신처</label>
+            <input class="input" id="mCounterpart" placeholder="예: OO시청 건축과">
+          </div>
+          <div class="field">
+            <label>종류</label>
+            <select class="select" id="mType">
+              <option>공문</option><option>계약서류</option><option>기성서류</option>
+              <option>인허가</option><option>민원</option><option>기타</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>처리상태</label>
+            <select class="select" id="mStatus">
+              <option>접수</option><option>처리중</option><option>회신대기</option><option>완료</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>회신기한</label>
+            <input class="input" id="mDue" type="date">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>현장</label>
+            <select class="select" id="mSite"></select>
+          </div>
+          <div class="field">
+            <label>담당</label>
+            <select class="select" id="mOwner"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>비고</label>
+          <input class="input" id="mMemo">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    UI.init("documents", "문서 관리대장");
+    UI.bindModalClose();
+
+    let editingId = null;
+
+    /* ---------- 필터 ---------- */
+    function initFilters() {
+      const years = [...new Set(Store.list("documents").map((d) => (d.date || "").slice(0, 4)).filter(Boolean))]
+        .sort().reverse();
+      const thisYear = String(new Date().getFullYear());
+      if (!years.includes(thisYear)) years.unshift(thisYear);
+      document.getElementById("fYear").innerHTML =
+        `<option value="">전체 연도</option>` + years.map((y) => `<option>${y}</option>`).join("");
+      document.getElementById("fSite").innerHTML = UI.siteOptions("", "전체 현장");
+      ["fSearch", "fYear", "fDirection", "fType", "fStatus", "fSite"].forEach((id) =>
+        document.getElementById(id).addEventListener("input", render));
+    }
+
+    function filteredDocs() {
+      const q = document.getElementById("fSearch").value.trim();
+      const year = document.getElementById("fYear").value;
+      const dir = document.getElementById("fDirection").value;
+      const type = document.getElementById("fType").value;
+      const status = document.getElementById("fStatus").value;
+      const site = document.getElementById("fSite").value;
+      return Store.list("documents", (d) =>
+        (!q || (d.title || "").includes(q) || (d.docNo || "").includes(q) || (d.counterpart || "").includes(q)) &&
+        (!year || (d.date || "").startsWith(year)) &&
+        (!dir || d.direction === dir) &&
+        (!type || d.docType === type) &&
+        (!status || d.status === status) &&
+        (!site || d.siteId === site))
+        .sort((a, b) => (b.date || "") < (a.date || "") ? -1 : 1);
+    }
+
+    /* ---------- 렌더 ---------- */
+    function render() {
+      const docs = filteredDocs();
+      const wrap = document.getElementById("ledgerWrap");
+      document.getElementById("printSub").textContent =
+        `출력일: ${UI.todayStr()} · ${docs.length}건`;
+      if (!Store.list("documents").length) {
+        wrap.innerHTML = `<div class="empty">
+          <div class="empty-icon">📄</div>
+          <p>등록된 문서가 없습니다.<br>수신·발신 공문을 등록해 대장으로 관리하세요.</p>
+          <button class="btn primary" onclick="openNew()">+ 문서 등록</button>
+        </div>`;
+        return;
+      }
+      const rows = docs.map((d, i) => {
+        const overdue = d.status !== "완료" && d.dueDate && UI.dday(d.dueDate) < 0;
+        return `
+        <tr data-open="${d.id}" class="${overdue ? "overdue" : ""}">
+          <td class="center">${docs.length - i}</td>
+          <td>${UI.badge(d.direction)}</td>
+          <td class="nowrap">${UI.esc(d.docNo || "-")}</td>
+          <td class="nowrap">${UI.fmtDate(d.date)}</td>
+          <td>${UI.esc(d.counterpart || "-")}</td>
+          <td>${UI.esc(d.title)}</td>
+          <td>${UI.esc(d.docType || "공문")}</td>
+          <td>${UI.esc(UI.siteName(d.siteId))}</td>
+          <td>${UI.esc(UI.personName(d.ownerId))}</td>
+          <td>${UI.badge(d.status)}</td>
+          <td class="nowrap">${d.dueDate ? UI.fmtDate(d.dueDate) + " " + (d.status !== "완료" ? UI.ddayBadge(d.dueDate) : "") : "-"}</td>
+        </tr>`;
+      }).join("");
+      wrap.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr>
+          <th>연번</th><th>구분</th><th>문서번호</th><th>일자</th><th>발신처/수신처</th>
+          <th>제목</th><th>종류</th><th>현장</th><th>담당</th><th>상태</th><th>회신기한</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+      wrap.querySelectorAll("[data-open]").forEach((el) =>
+        el.addEventListener("click", () => openEdit(el.dataset.open)));
+    }
+
+    /* ---------- 문서번호 자동 제안: 제YYYY-NNN호 ---------- */
+    function suggestDocNo() {
+      const year = new Date().getFullYear();
+      const prefix = `제${year}-`;
+      const nums = Store.list("documents", (d) => d.direction === "발신" && (d.docNo || "").startsWith(prefix))
+        .map((d) => parseInt((d.docNo.match(/-(\d+)호/) || [])[1] || "0", 10));
+      const next = (nums.length ? Math.max(...nums) : 0) + 1;
+      return `${prefix}${String(next).padStart(3, "0")}호`;
+    }
+
+    /* ---------- 모달 ---------- */
+    function syncCounterpartLabel() {
+      document.getElementById("counterpartLabel").textContent =
+        document.getElementById("mDirection").value === "수신" ? "발신처" : "수신처";
+    }
+    document.getElementById("mDirection").addEventListener("change", () => {
+      syncCounterpartLabel();
+      if (!editingId && document.getElementById("mDirection").value === "발신" && !document.getElementById("mDocNo").value) {
+        document.getElementById("mDocNo").value = suggestDocNo();
+      }
+    });
+
+    function openNew() {
+      editingId = null;
+      document.getElementById("modalTitle").textContent = "문서 등록";
+      document.getElementById("btnDelete").classList.add("hidden");
+      ["mDocNo", "mTitle", "mCounterpart", "mDue", "mMemo"].forEach((id) => (document.getElementById(id).value = ""));
+      document.getElementById("mDirection").value = "수신";
+      document.getElementById("mDate").value = UI.todayStr();
+      document.getElementById("mType").value = "공문";
+      document.getElementById("mStatus").value = "접수";
+      document.getElementById("mSite").innerHTML = UI.siteOptions("", "현장 없음(공통)");
+      document.getElementById("mOwner").innerHTML = UI.personOptions("", null, "담당 없음(본인)");
+      syncCounterpartLabel();
+      UI.openModal("docModal");
+      document.getElementById("mTitle").focus();
+    }
+
+    function openEdit(id) {
+      const d = Store.get("documents", id);
+      if (!d) return;
+      editingId = id;
+      document.getElementById("modalTitle").textContent = "문서 수정";
+      document.getElementById("btnDelete").classList.remove("hidden");
+      document.getElementById("mDirection").value = d.direction || "수신";
+      document.getElementById("mDocNo").value = d.docNo || "";
+      document.getElementById("mDate").value = d.date || "";
+      document.getElementById("mTitle").value = d.title || "";
+      document.getElementById("mCounterpart").value = d.counterpart || "";
+      document.getElementById("mType").value = d.docType || "공문";
+      document.getElementById("mStatus").value = d.status || "접수";
+      document.getElementById("mDue").value = d.dueDate || "";
+      document.getElementById("mMemo").value = d.memo || "";
+      document.getElementById("mSite").innerHTML = UI.siteOptions(d.siteId, "현장 없음(공통)");
+      document.getElementById("mOwner").innerHTML = UI.personOptions(d.ownerId, null, "담당 없음(본인)");
+      syncCounterpartLabel();
+      UI.openModal("docModal");
+    }
+
+    document.getElementById("btnSave").addEventListener("click", () => {
+      const title = document.getElementById("mTitle").value.trim();
+      const date = document.getElementById("mDate").value;
+      if (!title) { UI.toast("제목을 입력하세요.", "error"); return; }
+      if (!date) { UI.toast("일자를 입력하세요.", "error"); return; }
+      const data = {
+        direction: document.getElementById("mDirection").value,
+        docNo: document.getElementById("mDocNo").value.trim(),
+        date,
+        title,
+        counterpart: document.getElementById("mCounterpart").value.trim(),
+        docType: document.getElementById("mType").value,
+        status: document.getElementById("mStatus").value,
+        dueDate: document.getElementById("mDue").value || null,
+        siteId: document.getElementById("mSite").value || null,
+        ownerId: document.getElementById("mOwner").value || null,
+        memo: document.getElementById("mMemo").value.trim(),
+      };
+      if (editingId) {
+        Store.update("documents", editingId, data);
+        UI.toast("문서를 수정했습니다.", "success");
+      } else {
+        Store.add("documents", data);
+        UI.toast("문서를 등록했습니다.", "success");
+      }
+      UI.closeModal("docModal");
+      initFilters();
+      render();
+    });
+
+    document.getElementById("btnDelete").addEventListener("click", () => {
+      if (editingId && confirm("이 문서를 삭제할까요?")) {
+        Store.remove("documents", editingId);
+        UI.closeModal("docModal");
+        UI.toast("삭제했습니다.");
+        render();
+      }
+    });
+
+    document.getElementById("btnNew").addEventListener("click", openNew);
+
+    /* ---------- XLSX ---------- */
+    document.getElementById("btnXlsx").addEventListener("click", () => {
+      if (!UI.requireLib("XLSX", "엑셀(SheetJS)")) return;
+      const docs = filteredDocs();
+      const rows = docs.map((d, i) => ({
+        연번: docs.length - i,
+        구분: d.direction,
+        문서번호: d.docNo || "",
+        일자: d.date || "",
+        "발신처/수신처": d.counterpart || "",
+        제목: d.title,
+        종류: d.docType || "",
+        현장: UI.siteName(d.siteId).replace("-", ""),
+        담당: UI.personName(d.ownerId).replace("-", ""),
+        상태: d.status,
+        회신기한: d.dueDate || "",
+        비고: d.memo || "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "문서대장");
+      XLSX.writeFile(wb, `문서관리대장_${UI.todayStr()}.xlsx`);
+    });
+
+    initFilters();
+    render();
+  </script>
+</body>
+</html>

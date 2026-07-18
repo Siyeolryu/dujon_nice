@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>일정 캘린더 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>일정 캘린더</h1>
+      <span class="sub">일정·업무 마감·회신기한 통합 표시</span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnNew">+ 일정 등록</button>
+    </div>
+    <div class="content">
+      <div class="card card-pad">
+        <div class="flex flex-wrap no-print">
+          <button class="btn sm" id="btnPrev">◀</button>
+          <h2 id="calTitle" style="font-size:var(--fs-lg);min-width:120px;text-align:center"></h2>
+          <button class="btn sm" id="btnNext">▶</button>
+          <button class="btn sm ghost" id="btnToday">오늘</button>
+          <span class="spacer grow"></span>
+          <label class="small flex"><input type="checkbox" id="srcEvents" checked> 일정</label>
+          <label class="small flex"><input type="checkbox" id="srcTasks" checked> 업무 마감</label>
+          <label class="small flex"><input type="checkbox" id="srcDocs" checked> 회신기한</label>
+        </div>
+        <div class="mt-4" id="calWrap"></div>
+        <div class="small muted mt-2">
+          <span class="badge" style="background:var(--c-ev-billing);color:#fff">기성청구</span>
+          <span class="badge" style="background:var(--c-ev-contract);color:#fff">계약마감</span>
+          <span class="badge" style="background:var(--c-ev-meeting);color:#fff">회의</span>
+          <span class="badge" style="background:var(--c-ev-bid);color:#fff">입찰</span>
+          <span class="badge" style="background:var(--c-ev-etc);color:#fff">기타</span>
+          <span class="badge navy">업무 마감</span>
+          <span class="badge orange">회신기한</span>
+        </div>
+      </div>
+
+      <div class="card mt-4 hidden" id="dayPanel">
+        <div class="card-head">
+          <h2 id="dayTitle"></h2>
+          <span class="spacer"></span>
+          <button class="btn sm" id="btnDayAdd">+ 이 날짜에 일정</button>
+        </div>
+        <div class="card-body" id="dayList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 일정 등록/수정 모달 -->
+  <div class="modal-backdrop" id="evModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">일정 등록</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>일정명 <span class="req">*</span></label>
+          <input class="input" id="mTitle" placeholder="예: 7월 기성청구 (OO현장)">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>일자 <span class="req">*</span></label>
+            <input class="input" id="mDate" type="date">
+          </div>
+          <div class="field">
+            <label>유형</label>
+            <select class="select" id="mType">
+              <option>기성청구</option><option>계약마감</option><option>회의</option>
+              <option>입찰</option><option selected>기타</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>현장</label>
+            <select class="select" id="mSite"></select>
+          </div>
+          <div class="field">
+            <label>비고</label>
+            <input class="input" id="mMemo">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    UI.init("calendar", "일정 캘린더");
+    UI.bindModalClose();
+
+    const EV_COLORS = {
+      "기성청구": "var(--c-ev-billing)", "계약마감": "var(--c-ev-contract)",
+      "회의": "var(--c-ev-meeting)", "입찰": "var(--c-ev-bid)", "기타": "var(--c-ev-etc)",
+    };
+    let cur = new Date();
+    cur.setDate(1);
+    let selectedDate = null;
+    let editingId = null;
+
+    /* 해당 월의 표시 항목 수집: { date, kind, label, color, id? } */
+    function collectItems(ymPrefix) {
+      const items = [];
+      if (document.getElementById("srcEvents").checked) {
+        Store.list("events", (e) => (e.date || "").startsWith(ymPrefix)).forEach((e) =>
+          items.push({ date: e.date, kind: "event", id: e.id, label: e.title, color: EV_COLORS[e.type] || EV_COLORS["기타"], type: e.type, siteId: e.siteId }));
+      }
+      if (document.getElementById("srcTasks").checked) {
+        Store.list("tasks", (t) => t.status !== "완료" && (t.dueDate || "").startsWith(ymPrefix)).forEach((t) =>
+          items.push({ date: t.dueDate, kind: "task", id: t.id, label: `[업무] ${t.title}`, color: "var(--c-primary)", siteId: t.siteId }));
+      }
+      if (document.getElementById("srcDocs").checked) {
+        Store.list("documents", (d) => d.status !== "완료" && (d.dueDate || "").startsWith(ymPrefix)).forEach((d) =>
+          items.push({ date: d.dueDate, kind: "doc", id: d.id, label: `[회신] ${d.title}`, color: "var(--c-warn)", siteId: d.siteId }));
+      }
+      return items;
+    }
+
+    function render() {
+      const y = cur.getFullYear(), m = cur.getMonth();
+      const ym = `${y}-${String(m + 1).padStart(2, "0")}`;
+      document.getElementById("calTitle").textContent = `${y}년 ${m + 1}월`;
+      const items = collectItems(ym);
+      const byDate = {};
+      items.forEach((it) => { (byDate[it.date] = byDate[it.date] || []).push(it); });
+
+      const first = new Date(y, m, 1);
+      const startDow = first.getDay(); // 0=일
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const today = UI.todayStr();
+
+      let html = `<div class="cal-grid">`;
+      ["일", "월", "화", "수", "목", "금", "토"].forEach((d) => (html += `<div class="cal-dow">${d}</div>`));
+
+      // 앞쪽 빈 칸 (전월)
+      for (let i = 0; i < startDow; i++) html += `<div class="cal-cell other"></div>`;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${ym}-${String(d).padStart(2, "0")}`;
+        const dow = (startDow + d - 1) % 7;
+        const dayItems = byDate[dateStr] || [];
+        const shown = dayItems.slice(0, 3).map((it) =>
+          `<span class="cal-item" style="background:${it.color}">${UI.esc(it.label)}</span>`).join("");
+        const more = dayItems.length > 3 ? `<span class="cal-more">+${dayItems.length - 3}건</span>` : "";
+        const cls = ["cal-cell"];
+        if (dateStr === today) cls.push("today");
+        const dayCls = dow === 0 ? "sun" : dow === 6 ? "sat" : "";
+        html += `<div class="${cls.join(" ")}" data-date="${dateStr}">
+          <span class="cal-day ${dayCls}">${d}</span>${shown}${more}</div>`;
+      }
+      // 뒤쪽 빈 칸
+      const tail = (startDow + daysInMonth) % 7;
+      if (tail) for (let i = tail; i < 7; i++) html += `<div class="cal-cell other"></div>`;
+      html += `</div>`;
+
+      document.getElementById("calWrap").innerHTML = html;
+      document.querySelectorAll(".cal-cell[data-date]").forEach((cell) =>
+        cell.addEventListener("click", () => selectDay(cell.dataset.date)));
+      if (selectedDate && selectedDate.startsWith(ym)) renderDayPanel();
+      else document.getElementById("dayPanel").classList.add("hidden");
+    }
+
+    /* ---------- 일자 패널 ---------- */
+    function selectDay(dateStr) {
+      selectedDate = dateStr;
+      renderDayPanel();
+    }
+
+    function renderDayPanel() {
+      const panel = document.getElementById("dayPanel");
+      panel.classList.remove("hidden");
+      const d = new Date(selectedDate);
+      const dow = ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
+      document.getElementById("dayTitle").textContent = `${selectedDate} (${dow})`;
+      const items = collectItems(selectedDate.slice(0, 7)).filter((it) => it.date === selectedDate);
+      if (!items.length) {
+        document.getElementById("dayList").innerHTML = `<p class="muted small">이 날짜의 항목이 없습니다.</p>`;
+        return;
+      }
+      document.getElementById("dayList").innerHTML = items.map((it) => {
+        const site = it.siteId ? ` <span class="muted small">· ${UI.esc(UI.siteName(it.siteId))}</span>` : "";
+        const editBtn = it.kind === "event"
+          ? `<button class="btn sm ghost" data-edit="${it.id}">수정</button>`
+          : `<a class="btn sm ghost" href="${it.kind === "task" ? "tasks.html" : "documents.html"}">바로가기</a>`;
+        return `<div class="flex" style="padding:6px 0;border-bottom:1px solid var(--c-border)">
+          <span class="badge" style="background:${it.color};color:#fff">${it.kind === "event" ? UI.esc(it.type) : it.kind === "task" ? "업무" : "회신"}</span>
+          <span class="grow">${UI.esc(it.label.replace(/^\[(업무|회신)\] /, ""))}${site}</span>
+          ${editBtn}
+        </div>`;
+      }).join("");
+      document.getElementById("dayList").querySelectorAll("[data-edit]").forEach((b) =>
+        b.addEventListener("click", () => openEdit(b.dataset.edit)));
+    }
+
+    /* ---------- 모달 ---------- */
+    function openNew(dateStr) {
+      editingId = null;
+      document.getElementById("modalTitle").textContent = "일정 등록";
+      document.getElementById("btnDelete").classList.add("hidden");
+      document.getElementById("mTitle").value = "";
+      document.getElementById("mDate").value = dateStr || UI.todayStr();
+      document.getElementById("mType").value = "기타";
+      document.getElementById("mMemo").value = "";
+      document.getElementById("mSite").innerHTML = UI.siteOptions("", "현장 없음(공통)");
+      UI.openModal("evModal");
+      document.getElementById("mTitle").focus();
+    }
+
+    function openEdit(id) {
+      const e = Store.get("events", id);
+      if (!e) return;
+      editingId = id;
+      document.getElementById("modalTitle").textContent = "일정 수정";
+      document.getElementById("btnDelete").classList.remove("hidden");
+      document.getElementById("mTitle").value = e.title || "";
+      document.getElementById("mDate").value = e.date || "";
+      document.getElementById("mType").value = e.type || "기타";
+      document.getElementById("mMemo").value = e.memo || "";
+      document.getElementById("mSite").innerHTML = UI.siteOptions(e.siteId, "현장 없음(공통)");
+      UI.openModal("evModal");
+    }
+
+    document.getElementById("btnSave").addEventListener("click", () => {
+      const title = document.getElementById("mTitle").value.trim();
+      const date = document.getElementById("mDate").value;
+      if (!title) { UI.toast("일정명을 입력하세요.", "error"); return; }
+      if (!date) { UI.toast("일자를 입력하세요.", "error"); return; }
+      const data = {
+        title, date,
+        type: document.getElementById("mType").value,
+        siteId: document.getElementById("mSite").value || null,
+        memo: document.getElementById("mMemo").value.trim(),
+      };
+      if (editingId) {
+        Store.update("events", editingId, data);
+        UI.toast("일정을 수정했습니다.", "success");
+      } else {
+        Store.add("events", data);
+        UI.toast("일정을 등록했습니다.", "success");
+      }
+      UI.closeModal("evModal");
+      render();
+    });
+
+    document.getElementById("btnDelete").addEventListener("click", () => {
+      if (editingId && confirm("이 일정을 삭제할까요?")) {
+        Store.remove("events", editingId);
+        UI.closeModal("evModal");
+        UI.toast("삭제했습니다.");
+        render();
+      }
+    });
+
+    document.getElementById("btnNew").addEventListener("click", () => openNew());
+    document.getElementById("btnDayAdd").addEventListener("click", () => openNew(selectedDate));
+    document.getElementById("btnPrev").addEventListener("click", () => { cur.setMonth(cur.getMonth() - 1); render(); });
+    document.getElementById("btnNext").addEventListener("click", () => { cur.setMonth(cur.getMonth() + 1); render(); });
+    document.getElementById("btnToday").addEventListener("click", () => { cur = new Date(); cur.setDate(1); render(); });
+    ["srcEvents", "srcTasks", "srcDocs"].forEach((id) =>
+      document.getElementById(id).addEventListener("change", render));
+
+    render();
+  </script>
+</body>
+</html>

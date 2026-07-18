@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>업무 보드 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>업무 보드</h1>
+      <span class="sub">내 업무를 대기·진행·완료로 관리</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btnViewToggle">목록 보기</button>
+      <button class="btn primary" id="btnNew">+ 업무 등록</button>
+    </div>
+    <div class="content">
+      <div class="filters no-print" id="filterBar">
+        <input class="input" id="fSearch" type="search" placeholder="업무명 검색">
+        <select class="select" id="fSite"></select>
+        <select class="select" id="fAssignee"></select>
+        <select class="select" id="fCategory">
+          <option value="">전체 구분</option>
+          <option>기성</option><option>계약</option><option>공문</option>
+          <option>인허가</option><option>민원</option><option>일반</option>
+        </select>
+        <select class="select" id="fPriority">
+          <option value="">전체 우선순위</option>
+          <option>높음</option><option>보통</option><option>낮음</option>
+        </select>
+        <label class="small flex"><input type="checkbox" id="fHideDone"> 완료 숨기기</label>
+      </div>
+
+      <div class="mt-4" id="boardWrap"></div>
+    </div>
+  </div>
+
+  <!-- 업무 등록/수정 모달 -->
+  <div class="modal-backdrop" id="taskModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">업무 등록</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>업무명 <span class="req">*</span></label>
+          <input class="input" id="mTitle" placeholder="예: 7월 기성청구 서류 작성">
+        </div>
+        <div class="field">
+          <label>내용</label>
+          <textarea class="textarea" id="mDesc" placeholder="세부 내용, 진행 상황 메모"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>상태</label>
+            <select class="select" id="mStatus"><option>대기</option><option>진행</option><option>완료</option></select>
+          </div>
+          <div class="field">
+            <label>우선순위</label>
+            <select class="select" id="mPriority"><option>높음</option><option selected>보통</option><option>낮음</option></select>
+          </div>
+          <div class="field">
+            <label>마감일</label>
+            <input class="input" id="mDue" type="date">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>구분</label>
+            <select class="select" id="mCategory">
+              <option>일반</option><option>기성</option><option>계약</option>
+              <option>공문</option><option>인허가</option><option>민원</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>현장</label>
+            <select class="select" id="mSite"></select>
+          </div>
+          <div class="field">
+            <label>담당</label>
+            <select class="select" id="mAssignee"></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    UI.init("tasks", "업무 보드");
+    UI.bindModalClose();
+
+    const STATUSES = ["대기", "진행", "완료"];
+    let viewMode = "kanban"; // kanban | list
+    let editingId = null;
+
+    /* ---------- 필터 ---------- */
+    function initFilters() {
+      document.getElementById("fSite").innerHTML = UI.siteOptions("", "전체 현장");
+      document.getElementById("fAssignee").innerHTML = UI.personOptions("", null, "전체 담당");
+      ["fSearch", "fSite", "fAssignee", "fCategory", "fPriority", "fHideDone"].forEach((id) =>
+        document.getElementById(id).addEventListener("input", render));
+    }
+
+    function filteredTasks() {
+      const q = document.getElementById("fSearch").value.trim();
+      const site = document.getElementById("fSite").value;
+      const assignee = document.getElementById("fAssignee").value;
+      const cat = document.getElementById("fCategory").value;
+      const pri = document.getElementById("fPriority").value;
+      const hideDone = document.getElementById("fHideDone").checked;
+      return Store.list("tasks", (t) =>
+        (!q || (t.title || "").includes(q) || (t.description || "").includes(q)) &&
+        (!site || t.siteId === site) &&
+        (!assignee || t.assigneeId === assignee) &&
+        (!cat || t.category === cat) &&
+        (!pri || t.priority === pri) &&
+        (!hideDone || t.status !== "완료"));
+    }
+
+    function sortTasks(arr) {
+      const priOrder = { "높음": 0, "보통": 1, "낮음": 2 };
+      return arr.sort((a, b) =>
+        (a.dueDate || "9999") < (b.dueDate || "9999") ? -1 :
+        (a.dueDate || "9999") > (b.dueDate || "9999") ? 1 :
+        (priOrder[a.priority] ?? 1) - (priOrder[b.priority] ?? 1));
+    }
+
+    /* ---------- 렌더 ---------- */
+    function render() {
+      const tasks = sortTasks(filteredTasks());
+      const wrap = document.getElementById("boardWrap");
+      if (!Store.list("tasks").length) {
+        wrap.innerHTML = `
+          <div class="card"><div class="empty">
+            <div class="empty-icon">📋</div>
+            <p>등록된 업무가 없습니다.<br>첫 업무를 등록하거나, 설정에서 샘플 데이터를 넣어볼 수 있습니다.</p>
+            <button class="btn primary" onclick="openNew()">+ 업무 등록</button>
+          </div></div>`;
+        return;
+      }
+      wrap.innerHTML = viewMode === "kanban" ? renderKanban(tasks) : renderList(tasks);
+      if (viewMode === "kanban") bindDnD();
+      wrap.querySelectorAll("[data-open]").forEach((el) =>
+        el.addEventListener("click", () => openEdit(el.dataset.open)));
+      wrap.querySelectorAll("select[data-move]").forEach((sel) => {
+        sel.addEventListener("click", (e) => e.stopPropagation());
+        sel.addEventListener("change", () => moveTask(sel.dataset.move, sel.value));
+      });
+    }
+
+    function cardMeta(t) {
+      const parts = [];
+      if (t.priority && t.priority !== "보통") parts.push(UI.badge(t.priority));
+      if (t.category && t.category !== "일반") parts.push(`<span class="badge navy">${UI.esc(t.category)}</span>`);
+      if (t.siteId) parts.push(`<span class="muted">${UI.esc(UI.siteName(t.siteId))}</span>`);
+      if (t.assigneeId) parts.push(`<span class="muted">${UI.esc(UI.personName(t.assigneeId))}</span>`);
+      if (t.dueDate && t.status !== "완료") parts.push(UI.ddayBadge(t.dueDate));
+      if (t.status === "완료" && t.completedAt) parts.push(`<span class="muted">완료 ${UI.fmtShort(t.completedAt)}</span>`);
+      return parts.join(" ");
+    }
+
+    function renderKanban(tasks) {
+      return `<div class="kanban">` + STATUSES.map((st) => {
+        const items = tasks.filter((t) => t.status === st);
+        const cards = items.map((t) => `
+          <div class="kanban-card" draggable="true" data-id="${t.id}" data-open="${t.id}">
+            <div class="kc-title">${UI.esc(t.title)}</div>
+            <div class="kc-meta">${cardMeta(t)}</div>
+          </div>`).join("") || `<div class="small muted center" style="padding:12px 0">없음</div>`;
+        return `
+          <div class="kanban-col" data-status="${st}">
+            <div class="kanban-col-head">${UI.badge(st)} <span class="count">${items.length}</span></div>
+            ${cards}
+          </div>`;
+      }).join("") + `</div>`;
+    }
+
+    function renderList(tasks) {
+      const rows = tasks.map((t) => `
+        <tr data-open="${t.id}" class="${t.status !== "완료" && UI.dday(t.dueDate) < 0 ? "overdue" : ""}">
+          <td><select class="select" data-move="${t.id}" style="width:auto;padding:3px 6px">
+            ${STATUSES.map((s) => `<option ${s === t.status ? "selected" : ""}>${s}</option>`).join("")}
+          </select></td>
+          <td>${UI.esc(t.title)}</td>
+          <td>${UI.badge(t.priority)}</td>
+          <td class="nowrap">${UI.fmtDate(t.dueDate)} ${t.status !== "완료" ? UI.ddayBadge(t.dueDate) : ""}</td>
+          <td>${UI.esc(t.category || "일반")}</td>
+          <td>${UI.esc(UI.siteName(t.siteId))}</td>
+          <td>${UI.esc(UI.personName(t.assigneeId))}</td>
+        </tr>`).join("");
+      return `
+        <div class="card"><div class="table-wrap"><table class="table">
+          <thead><tr><th>상태</th><th>업무명</th><th>우선순위</th><th>마감일</th><th>구분</th><th>현장</th><th>담당</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div></div>`;
+    }
+
+    /* ---------- 드래그 앤 드롭 (실패해도 셀렉트로 이동 가능) ---------- */
+    function bindDnD() {
+      document.querySelectorAll(".kanban-card").forEach((card) => {
+        card.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", card.dataset.id);
+          card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", () => card.classList.remove("dragging"));
+      });
+      document.querySelectorAll(".kanban-col").forEach((col) => {
+        col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("drag-over"); });
+        col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+        col.addEventListener("drop", (e) => {
+          e.preventDefault();
+          col.classList.remove("drag-over");
+          moveTask(e.dataTransfer.getData("text/plain"), col.dataset.status);
+        });
+      });
+    }
+
+    function moveTask(id, status) {
+      const patch = { status };
+      const t = Store.get("tasks", id);
+      if (!t) return;
+      if (status === "완료" && !t.completedAt) patch.completedAt = new Date().toISOString();
+      if (status !== "완료") patch.completedAt = null;
+      Store.update("tasks", id, patch);
+      render();
+    }
+
+    /* ---------- 모달 ---------- */
+    function fillModalSelects(t = {}) {
+      document.getElementById("mSite").innerHTML = UI.siteOptions(t.siteId, "현장 없음(공통)");
+      document.getElementById("mAssignee").innerHTML = UI.personOptions(t.assigneeId, null, "담당 없음(본인)");
+    }
+
+    function openNew() {
+      editingId = null;
+      document.getElementById("modalTitle").textContent = "업무 등록";
+      document.getElementById("btnDelete").classList.add("hidden");
+      ["mTitle", "mDesc", "mDue"].forEach((id) => (document.getElementById(id).value = ""));
+      document.getElementById("mStatus").value = "대기";
+      document.getElementById("mPriority").value = "보통";
+      document.getElementById("mCategory").value = "일반";
+      fillModalSelects();
+      UI.openModal("taskModal");
+      document.getElementById("mTitle").focus();
+    }
+
+    function openEdit(id) {
+      const t = Store.get("tasks", id);
+      if (!t) return;
+      editingId = id;
+      document.getElementById("modalTitle").textContent = "업무 수정";
+      document.getElementById("btnDelete").classList.remove("hidden");
+      document.getElementById("mTitle").value = t.title || "";
+      document.getElementById("mDesc").value = t.description || "";
+      document.getElementById("mStatus").value = t.status || "대기";
+      document.getElementById("mPriority").value = t.priority || "보통";
+      document.getElementById("mDue").value = t.dueDate || "";
+      document.getElementById("mCategory").value = t.category || "일반";
+      fillModalSelects(t);
+      UI.openModal("taskModal");
+    }
+
+    document.getElementById("btnSave").addEventListener("click", () => {
+      const title = document.getElementById("mTitle").value.trim();
+      if (!title) { UI.toast("업무명을 입력하세요.", "error"); return; }
+      const status = document.getElementById("mStatus").value;
+      const data = {
+        title,
+        description: document.getElementById("mDesc").value.trim(),
+        status,
+        priority: document.getElementById("mPriority").value,
+        dueDate: document.getElementById("mDue").value || null,
+        category: document.getElementById("mCategory").value,
+        siteId: document.getElementById("mSite").value || null,
+        assigneeId: document.getElementById("mAssignee").value || null,
+      };
+      if (editingId) {
+        const prev = Store.get("tasks", editingId);
+        data.completedAt = status === "완료" ? (prev.completedAt || new Date().toISOString()) : null;
+        Store.update("tasks", editingId, data);
+        UI.toast("업무를 수정했습니다.", "success");
+      } else {
+        data.completedAt = status === "완료" ? new Date().toISOString() : null;
+        Store.add("tasks", data);
+        UI.toast("업무를 등록했습니다.", "success");
+      }
+      UI.closeModal("taskModal");
+      render();
+    });
+
+    document.getElementById("btnDelete").addEventListener("click", () => {
+      if (editingId && confirm("이 업무를 삭제할까요?")) {
+        Store.remove("tasks", editingId);
+        UI.closeModal("taskModal");
+        UI.toast("삭제했습니다.");
+        render();
+      }
+    });
+
+    document.getElementById("btnNew").addEventListener("click", openNew);
+    document.getElementById("btnViewToggle").addEventListener("click", () => {
+      viewMode = viewMode === "kanban" ? "list" : "kanban";
+      document.getElementById("btnViewToggle").textContent = viewMode === "kanban" ? "목록 보기" : "칸반 보기";
+      render();
+    });
+
+    initFilters();
+    render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>대시보드 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>대시보드</h1>
+      <span class="sub" id="todayLabel"></span>
+      <span class="spacer"></span>
+      <a class="btn" href="report.html">주간보고 작성</a>
+      <a class="btn primary" href="tasks.html">+ 업무 등록</a>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/seed.js"></script>
+  <script>
+    UI.init("home", "대시보드");
+
+    const today = UI.todayStr();
+    const d = new Date();
+    document.getElementById("todayLabel").textContent =
+      `${today} (${["일","월","화","수","목","금","토"][d.getDay()]})`;
+
+    function render() {
+      const el = document.getElementById("content");
+      const tasks = Store.list("tasks");
+      const docs = Store.list("documents");
+      const events = Store.list("events");
+      const isEmpty = !tasks.length && !docs.length && !events.length && !Store.list("sites").length;
+
+      if (isEmpty) {
+        el.innerHTML = `
+          <div class="card"><div class="empty">
+            <div class="empty-icon">🏗️</div>
+            <p><b>공무 플랫폼에 오신 것을 환영합니다.</b><br>
+            업무·문서·일정을 한곳에서 관리하고, 주간보고를 자동으로 만듭니다.<br>
+            먼저 화면 구성을 보시려면 샘플 데이터를 넣어보세요.</p>
+            <div class="flex" style="justify-content:center">
+              <button class="btn primary" id="btnSeed">샘플 데이터 넣기</button>
+              <a class="btn" href="settings.html">기초정보 등록하러 가기</a>
+            </div>
+          </div></div>`;
+        document.getElementById("btnSeed").addEventListener("click", () => {
+          Seed.inject();
+          UI.toast("샘플 데이터를 넣었습니다.", "success");
+          render();
+        });
+        return;
+      }
+
+      /* ---------- KPI ---------- */
+      const wk = UI.weekRange(today);
+      const inProgress = tasks.filter((t) => t.status === "진행").length;
+      const dueThisWeek = tasks.filter((t) => t.status !== "완료" && t.dueDate && t.dueDate >= today && t.dueDate <= wk.end).length;
+      const overdue = tasks.filter((t) => t.status !== "완료" && t.dueDate && t.dueDate < today).length;
+      const waitingDocs = docs.filter((dd) => dd.status === "회신대기").length;
+      const ym = today.slice(0, 7);
+      const billingCnt = events.filter((e) => e.type === "기성청구" && (e.date || "").startsWith(ym)).length;
+
+      /* ---------- 마감 임박 업무 (오늘~7일 + 지연) ---------- */
+      const soonEnd = UI.addDays(today, 7);
+      const urgent = tasks
+        .filter((t) => t.status !== "완료" && t.dueDate && t.dueDate <= soonEnd)
+        .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
+        .slice(0, 8);
+
+      /* ---------- 다가오는 일정 7일 ---------- */
+      const upcoming = [];
+      events.filter((e) => e.date >= today && e.date <= soonEnd)
+        .forEach((e) => upcoming.push({ date: e.date, label: e.title, tag: e.type, cls: "navy" }));
+      docs.filter((dd) => dd.status !== "완료" && dd.dueDate && dd.dueDate >= today && dd.dueDate <= soonEnd)
+        .forEach((dd) => upcoming.push({ date: dd.dueDate, label: `${dd.title} 회신`, tag: "회신기한", cls: "orange" }));
+      upcoming.sort((a, b) => (a.date < b.date ? -1 : 1));
+
+      /* ---------- 최근 문서 5건 ---------- */
+      const recentDocs = docs.slice().sort((a, b) => (b.date || "") < (a.date || "") ? -1 : 1).slice(0, 5);
+
+      el.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">진행 중 업무</div><div class="kpi-value">${inProgress}<span class="unit">건</span></div></div>
+          <div class="kpi ${dueThisWeek ? "warn" : ""}"><div class="kpi-label">이번 주 마감</div><div class="kpi-value">${dueThisWeek}<span class="unit">건</span></div></div>
+          <div class="kpi ${overdue ? "danger" : ""}"><div class="kpi-label">지연 업무</div><div class="kpi-value">${overdue}<span class="unit">건</span></div></div>
+          <div class="kpi ${waitingDocs ? "warn" : ""}"><div class="kpi-label">회신대기 문서</div><div class="kpi-value">${waitingDocs}<span class="unit">건</span></div></div>
+          <div class="kpi"><div class="kpi-label">이번 달 기성청구 일정</div><div class="kpi-value">${billingCnt}<span class="unit">건</span></div></div>
+        </div>
+
+        <div class="grid-2 mt-4">
+          <div class="card">
+            <div class="card-head"><h2>⏰ 마감 임박 업무</h2><span class="spacer"></span><a class="btn sm ghost" href="tasks.html">전체 보기</a></div>
+            <div class="card-body">${urgent.length ? `
+              <div class="table-wrap"><table class="table">
+                <thead><tr><th>업무명</th><th>마감</th><th>현장</th><th>상태</th></tr></thead>
+                <tbody>${urgent.map((t) => `
+                  <tr class="no-hover ${t.dueDate < today ? "overdue" : ""}">
+                    <td>${UI.esc(t.title)}</td>
+                    <td class="nowrap">${UI.fmtShort(t.dueDate)} ${UI.ddayBadge(t.dueDate)}</td>
+                    <td>${UI.esc(UI.siteName(t.siteId))}</td>
+                    <td>${UI.badge(t.status)}</td>
+                  </tr>`).join("")}</tbody>
+              </table></div>` :
+              `<p class="muted small">7일 내 마감 업무가 없습니다.</p>`}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>📅 다가오는 일정 (7일)</h2><span class="spacer"></span><a class="btn sm ghost" href="calendar.html">캘린더</a></div>
+            <div class="card-body">${upcoming.length ? upcoming.map((u) => `
+              <div class="flex" style="padding:6px 0;border-bottom:1px solid var(--c-border)">
+                <span class="nowrap small muted">${UI.fmtShort(u.date)}</span>
+                <span class="badge ${u.cls}">${UI.esc(u.tag)}</span>
+                <span class="grow">${UI.esc(u.label)}</span>
+              </div>`).join("") :
+              `<p class="muted small">7일 내 일정이 없습니다.</p>`}
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-4">
+          <div class="card-head"><h2>📄 최근 문서</h2><span class="spacer"></span><a class="btn sm ghost" href="documents.html">문서대장</a></div>
+          <div class="card-body">${recentDocs.length ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>구분</th><th>일자</th><th>제목</th><th>상대처</th><th>상태</th></tr></thead>
+              <tbody>${recentDocs.map((dd) => `
+                <tr class="no-hover">
+                  <td>${UI.badge(dd.direction)}</td>
+                  <td class="nowrap">${UI.fmtShort(dd.date)}</td>
+                  <td>${UI.esc(dd.title)}</td>
+                  <td>${UI.esc(dd.counterpart || "-")}</td>
+                  <td>${UI.badge(dd.status)}</td>
+                </tr>`).join("")}</tbody>
+            </table></div>` :
+            `<p class="muted small">등록된 문서가 없습니다.</p>`}
+          </div>
+        </div>`;
+    }
+
+    render();
+  </script>
+</body>
+</html>

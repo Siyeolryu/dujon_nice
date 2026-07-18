@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>설정·백업 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>설정·백업</h1>
+      <span class="sub">데이터 백업, 기초정보, 내 정보</span>
+    </div>
+    <div class="content">
+      <div class="grid-2">
+        <!-- 데이터 백업 -->
+        <div class="card">
+          <div class="card-head"><h2>💾 데이터 백업</h2></div>
+          <div class="card-body">
+            <p class="small muted">모든 데이터는 이 브라우저에만 저장됩니다. <b>주 1회 백업을 권장</b>합니다.<br>
+            백업 파일(JSON)은 다른 PC·브라우저에서 가져오기로 복원할 수 있습니다.</p>
+            <div class="flex mt-4">
+              <button class="btn primary" id="btnExport">JSON 내보내기</button>
+              <button class="btn" id="btnImport">JSON 가져오기</button>
+              <input type="file" id="importFile" accept=".json" class="hidden">
+            </div>
+            <div class="mt-6" style="border-top:1px solid var(--c-border);padding-top:var(--sp-4)">
+              <div class="flex">
+                <button class="btn" id="btnSeed">샘플 데이터 넣기</button>
+                <button class="btn danger" id="btnReset">데이터 전체 초기화</button>
+              </div>
+              <p class="small muted mt-2">샘플 데이터는 가상의 현장·인명입니다. 화면 구성을 미리 볼 때 사용하세요.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 내 정보 -->
+        <div class="card">
+          <div class="card-head"><h2>👤 내 정보 <span class="small muted">(보고서 서명란에 사용)</span></h2></div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="field"><label>성명</label><input class="input" id="myName" placeholder="홍길동"></div>
+              <div class="field"><label>직급</label><input class="input" id="myRank" placeholder="대리"></div>
+            </div>
+            <button class="btn primary" id="btnSaveMe">저장</button>
+            <div class="mt-6" style="border-top:1px solid var(--c-border);padding-top:var(--sp-4)">
+              <div class="field">
+                <label>카카오맵 JavaScript 키 <span class="small muted">(지도 기능용, 선택)</span></label>
+                <input class="input" id="kakaoKey" placeholder="developers.kakao.com에서 발급">
+              </div>
+              <p class="small muted">발급: developers.kakao.com → 앱 생성 → JavaScript 키 복사 →
+              플랫폼(Web)에 <code>http://localhost:8000</code>과 <code>https://siyeolryu.github.io</code> 등록.<br>
+              키는 이 브라우저에만 저장되며 저장소에 커밋되지 않습니다.</p>
+              <button class="btn" id="btnSaveKey">키 저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2 mt-4">
+        <!-- 현장 관리 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>🏗️ 현장 관리</h2>
+            <span class="spacer"></span>
+            <a class="btn sm" href="sites.html">배정현황 보기</a>
+            <button class="btn sm primary" id="btnNewSite">+ 현장</button>
+          </div>
+          <div class="card-body" id="siteList"></div>
+        </div>
+
+        <!-- 담당자 관리 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>👥 담당자 관리</h2>
+            <span class="spacer"></span>
+            <button class="btn sm primary" id="btnNewPerson">+ 담당자</button>
+          </div>
+          <div class="card-body" id="personList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 현장 모달 -->
+  <div class="modal-backdrop" id="siteModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="siteModalTitle">현장 등록</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label>현장명 <span class="req">*</span></label><input class="input" id="sName" placeholder="예: OO아파트 신축공사"></div>
+          <div class="field"><label>현장 코드</label><input class="input" id="sCode" placeholder="예: A-01"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>발주처</label><input class="input" id="sClient"></div>
+          <div class="field"><label>상태</label>
+            <select class="select" id="sStatus"><option>예정</option><option selected>진행중</option><option>준공</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>착공일</label><input class="input" id="sStart" type="date"></div>
+          <div class="field"><label>준공예정일</label><input class="input" id="sEnd" type="date"></div>
+        </div>
+        <div class="field"><label>주소 <span class="small muted">(지도·거리 계산용 — 배정현황에서 좌표 변환)</span></label>
+          <input class="input" id="sAddress" placeholder="예: 경기도 OO시 OO로 123"></div>
+        <div class="form-row">
+          <div class="field"><label>현장소장</label><select class="select" id="sManager"></select></div>
+          <div class="field"><label>담당 공무</label><select class="select" id="sGongmu"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>네이버밴드 링크</label><input class="input" id="sBand" placeholder="https://band.us/..."></div>
+          <div class="field"><label>비고</label><input class="input" id="sMemo"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnSiteDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnSiteSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 담당자 모달 -->
+  <div class="modal-backdrop" id="personModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="personModalTitle">담당자 등록</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label>이름 <span class="req">*</span></label><input class="input" id="pName"></div>
+          <div class="field"><label>직급</label><input class="input" id="pRank" placeholder="예: 소장, 대리"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>역할</label>
+            <select class="select" id="pRole"><option>공무</option><option>현장소장</option><option>현장직원</option><option>기타</option></select>
+          </div>
+          <div class="field"><label>연락처</label><input class="input" id="pPhone" placeholder="010-0000-0000"></div>
+        </div>
+        <label class="small flex"><input type="checkbox" id="pActive" checked> 재직 중</label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnPersonDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnPersonSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/seed.js"></script>
+  <script>
+    UI.init("settings", "설정·백업");
+    UI.bindModalClose();
+
+    let editingSiteId = null, editingPersonId = null;
+
+    /* ---------- 백업 ---------- */
+    document.getElementById("btnExport").addEventListener("click", () => {
+      Store.exportJSON();
+      UI.toast("백업 파일을 내려받았습니다.", "success");
+    });
+    document.getElementById("btnImport").addEventListener("click", () =>
+      document.getElementById("importFile").click());
+    document.getElementById("importFile").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!confirm("가져오기는 현재 데이터를 백업 파일 내용으로 전체 교체합니다. 계속할까요?")) {
+        e.target.value = ""; return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          Store.importJSON(JSON.parse(reader.result));
+          UI.toast("복원했습니다.", "success");
+          loadMe(); renderSites(); renderPeople();
+        } catch (err) {
+          UI.toast(err.message || "가져오기에 실패했습니다.", "error");
+        }
+        e.target.value = "";
+      };
+      reader.readAsText(file);
+    });
+    document.getElementById("btnReset").addEventListener("click", () => {
+      if (confirm("모든 데이터를 삭제합니다. 백업 파일이 없으면 복구할 수 없습니다. 계속할까요?") &&
+          confirm("정말 초기화할까요?")) {
+        Store.resetAll();
+        UI.toast("초기화했습니다.");
+        loadMe(); renderSites(); renderPeople();
+      }
+    });
+    document.getElementById("btnSeed").addEventListener("click", () => {
+      if (Store.list("tasks").length || Store.list("sites").length) {
+        if (!confirm("이미 데이터가 있습니다. 샘플 데이터를 추가로 넣을까요?")) return;
+      }
+      Seed.inject();
+      UI.toast("샘플 데이터를 넣었습니다.", "success");
+      renderSites(); renderPeople();
+    });
+
+    /* ---------- 내 정보 / 카카오 키 ---------- */
+    function loadMe() {
+      const meta = Store.getMeta();
+      document.getElementById("myName").value = meta.owner || "";
+      document.getElementById("myRank").value = meta.ownerRank || "";
+      document.getElementById("kakaoKey").value = meta.kakaoKey || "";
+    }
+    document.getElementById("btnSaveMe").addEventListener("click", () => {
+      Store.setMeta({
+        owner: document.getElementById("myName").value.trim(),
+        ownerRank: document.getElementById("myRank").value.trim(),
+      });
+      UI.toast("내 정보를 저장했습니다.", "success");
+    });
+    document.getElementById("btnSaveKey").addEventListener("click", () => {
+      Store.setMeta({ kakaoKey: document.getElementById("kakaoKey").value.trim() });
+      UI.toast("카카오맵 키를 저장했습니다.", "success");
+    });
+
+    /* ---------- 현장 관리 ---------- */
+    function renderSites() {
+      const sites = Store.list("sites");
+      const el = document.getElementById("siteList");
+      if (!sites.length) {
+        el.innerHTML = `<div class="empty"><div class="empty-icon">🏗️</div>
+          <p>등록된 현장이 없습니다.</p>
+          <button class="btn primary" onclick="openSiteNew()">+ 현장 등록</button></div>`;
+        return;
+      }
+      el.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>현장명</th><th>발주처</th><th>상태</th><th>현장소장</th></tr></thead>
+        <tbody>${sites.map((s) => `
+          <tr data-site="${s.id}">
+            <td>${UI.esc(s.name)}</td>
+            <td>${UI.esc(s.client || "-")}</td>
+            <td>${UI.badge(s.status)}</td>
+            <td>${UI.esc(UI.personName(s.siteManagerId))}</td>
+          </tr>`).join("")}</tbody></table></div>`;
+      el.querySelectorAll("[data-site]").forEach((tr) =>
+        tr.addEventListener("click", () => openSiteEdit(tr.dataset.site)));
+    }
+
+    function fillSiteSelects(s = {}) {
+      document.getElementById("sManager").innerHTML = UI.personOptions(s.siteManagerId, "현장소장", "소장 미배정");
+      document.getElementById("sGongmu").innerHTML = UI.personOptions(s.managerId, "공무", "담당 공무 없음");
+    }
+
+    function openSiteNew() {
+      editingSiteId = null;
+      document.getElementById("siteModalTitle").textContent = "현장 등록";
+      document.getElementById("btnSiteDelete").classList.add("hidden");
+      ["sName","sCode","sClient","sStart","sEnd","sAddress","sBand","sMemo"].forEach((id) => (document.getElementById(id).value = ""));
+      document.getElementById("sStatus").value = "진행중";
+      fillSiteSelects();
+      UI.openModal("siteModal");
+      document.getElementById("sName").focus();
+    }
+
+    function openSiteEdit(id) {
+      const s = Store.get("sites", id);
+      if (!s) return;
+      editingSiteId = id;
+      document.getElementById("siteModalTitle").textContent = "현장 수정";
+      document.getElementById("btnSiteDelete").classList.remove("hidden");
+      document.getElementById("sName").value = s.name || "";
+      document.getElementById("sCode").value = s.code || "";
+      document.getElementById("sClient").value = s.client || "";
+      document.getElementById("sStatus").value = s.status || "진행중";
+      document.getElementById("sStart").value = s.startDate || "";
+      document.getElementById("sEnd").value = s.endDate || "";
+      document.getElementById("sAddress").value = s.address || "";
+      document.getElementById("sBand").value = s.bandUrl || "";
+      document.getElementById("sMemo").value = s.memo || "";
+      fillSiteSelects(s);
+      UI.openModal("siteModal");
+    }
+
+    document.getElementById("btnSiteSave").addEventListener("click", () => {
+      const name = document.getElementById("sName").value.trim();
+      if (!name) { UI.toast("현장명을 입력하세요.", "error"); return; }
+      const prevAddress = editingSiteId ? (Store.get("sites", editingSiteId)?.address || "") : "";
+      const address = document.getElementById("sAddress").value.trim();
+      const data = {
+        name,
+        code: document.getElementById("sCode").value.trim(),
+        client: document.getElementById("sClient").value.trim(),
+        status: document.getElementById("sStatus").value,
+        startDate: document.getElementById("sStart").value || null,
+        endDate: document.getElementById("sEnd").value || null,
+        address,
+        siteManagerId: document.getElementById("sManager").value || null,
+        managerId: document.getElementById("sGongmu").value || null,
+        bandUrl: document.getElementById("sBand").value.trim(),
+        memo: document.getElementById("sMemo").value.trim(),
+      };
+      // 주소가 바뀌면 좌표 무효화 (배정현황에서 재변환)
+      if (address !== prevAddress) { data.lat = null; data.lng = null; data.sido = ""; data.sigungu = ""; }
+      if (editingSiteId) {
+        Store.update("sites", editingSiteId, data);
+        UI.toast("현장을 수정했습니다.", "success");
+      } else {
+        Store.add("sites", data);
+        UI.toast("현장을 등록했습니다.", "success");
+      }
+      UI.closeModal("siteModal");
+      renderSites();
+    });
+
+    document.getElementById("btnSiteDelete").addEventListener("click", () => {
+      if (editingSiteId && confirm("이 현장을 삭제할까요? 연결된 업무·문서의 현장 표시는 '-'가 됩니다.")) {
+        Store.remove("sites", editingSiteId);
+        UI.closeModal("siteModal");
+        UI.toast("삭제했습니다.");
+        renderSites();
+      }
+    });
+
+    /* ---------- 담당자 관리 ---------- */
+    function renderPeople() {
+      const people = Store.list("people");
+      const el = document.getElementById("personList");
+      if (!people.length) {
+        el.innerHTML = `<div class="empty"><div class="empty-icon">👥</div>
+          <p>등록된 담당자가 없습니다.<br>현장소장·공무 담당을 등록하면 업무·현장에 배정할 수 있습니다.</p>
+          <button class="btn primary" onclick="openPersonNew()">+ 담당자 등록</button></div>`;
+        return;
+      }
+      el.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>이름</th><th>직급</th><th>역할</th><th>연락처</th><th>상태</th></tr></thead>
+        <tbody>${people.map((p) => `
+          <tr data-person="${p.id}">
+            <td>${UI.esc(p.name)}</td>
+            <td>${UI.esc(p.rank || "-")}</td>
+            <td>${UI.esc(p.role || "-")}</td>
+            <td>${UI.esc(p.phone || "-")}</td>
+            <td>${p.active === false ? '<span class="badge gray">퇴직</span>' : '<span class="badge green">재직</span>'}</td>
+          </tr>`).join("")}</tbody></table></div>`;
+      el.querySelectorAll("[data-person]").forEach((tr) =>
+        tr.addEventListener("click", () => openPersonEdit(tr.dataset.person)));
+    }
+
+    function openPersonNew() {
+      editingPersonId = null;
+      document.getElementById("personModalTitle").textContent = "담당자 등록";
+      document.getElementById("btnPersonDelete").classList.add("hidden");
+      ["pName", "pRank", "pPhone"].forEach((id) => (document.getElementById(id).value = ""));
+      document.getElementById("pRole").value = "공무";
+      document.getElementById("pActive").checked = true;
+      UI.openModal("personModal");
+      document.getElementById("pName").focus();
+    }
+
+    function openPersonEdit(id) {
+      const p = Store.get("people", id);
+      if (!p) return;
+      editingPersonId = id;
+      document.getElementById("personModalTitle").textContent = "담당자 수정";
+      document.getElementById("btnPersonDelete").classList.remove("hidden");
+      document.getElementById("pName").value = p.name || "";
+      document.getElementById("pRank").value = p.rank || "";
+      document.getElementById("pRole").value = p.role || "공무";
+      document.getElementById("pPhone").value = p.phone || "";
+      document.getElementById("pActive").checked = p.active !== false;
+      UI.openModal("personModal");
+    }
+
+    document.getElementById("btnPersonSave").addEventListener("click", () => {
+      const name = document.getElementById("pName").value.trim();
+      if (!name) { UI.toast("이름을 입력하세요.", "error"); return; }
+      const data = {
+        name,
+        rank: document.getElementById("pRank").value.trim(),
+        role: document.getElementById("pRole").value,
+        phone: document.getElementById("pPhone").value.trim(),
+        active: document.getElementById("pActive").checked,
+      };
+      if (editingPersonId) {
+        Store.update("people", editingPersonId, data);
+        UI.toast("담당자를 수정했습니다.", "success");
+      } else {
+        Store.add("people", data);
+        UI.toast("담당자를 등록했습니다.", "success");
+      }
+      UI.closeModal("personModal");
+      renderPeople();
+    });
+
+    document.getElementById("btnPersonDelete").addEventListener("click", () => {
+      if (editingPersonId && confirm("이 담당자를 삭제할까요?")) {
+        Store.remove("people", editingPersonId);
+        UI.closeModal("personModal");
+        UI.toast("삭제했습니다.");
+        renderPeople();
+      }
+    });
+
+    document.getElementById("btnNewSite").addEventListener("click", openSiteNew);
+    document.getElementById("btnNewPerson").addEventListener("click", openPersonNew);
+
+    loadMe();
+    renderSites();
+    renderPeople();
+  </script>
+</body>
+</html>
