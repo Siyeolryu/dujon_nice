@@ -32,6 +32,7 @@ const UI = (() => {
       group: "도면·적산",
       items: [
         { key: "drawings", href: "drawings.html", label: "도면 검토·측정", icon: "📐" },
+        { key: "review", href: "review.html", label: "도면 검토 세션", icon: "🔍" },
         { key: "estimate", label: "견적서 작성", icon: "🧮", soon: true },
       ],
     },

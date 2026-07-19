@@ -135,6 +135,11 @@
               <option>건축</option><option>구조</option><option>설비</option>
               <option>전기</option><option>토목</option><option>기타</option>
             </select></div>
+          <div class="field"><label>도면 종류</label>
+            <select class="select" id="uSheetType">
+              <option>평면도</option><option>입면도</option><option>단면도</option>
+              <option>인테리어</option><option>창호일람표</option><option>마감표</option><option selected>기타</option>
+            </select></div>
           <div class="field"><label>차수</label><input class="input" id="uRev" placeholder="예: 최초, 변경1차"></div>
         </div>
         <div class="field"><label>도면명</label><input class="input" id="uName"></div>
@@ -222,12 +227,13 @@
         return;
       }
       area.innerHTML = `<div class="table-wrap"><table class="table">
-        <thead><tr><th>도면명</th><th>현장</th><th>구분</th><th>공종</th><th>차수</th><th>등록일</th><th></th></tr></thead>
+        <thead><tr><th>도면명</th><th>현장</th><th>구분</th><th>종류</th><th>공종</th><th>차수</th><th>등록일</th><th></th></tr></thead>
         <tbody>${list.map((d) => `
           <tr>
             <td data-open="${d.id}"><a href="javascript:void(0)">${UI.esc(d.name)}</a></td>
             <td>${UI.esc(UI.siteName(d.siteId))}</td>
             <td><span class="badge ${d.docType === "도면" ? "navy" : "gray"}">${UI.esc(d.docType)}</span></td>
+            <td>${d.sheetType && d.sheetType !== "기타" ? `<span class="badge blue">${UI.esc(d.sheetType)}</span>` : "-"}</td>
             <td>${UI.esc(d.discipline || "-")}</td>
             <td>${UI.esc(d.rev || "-")}</td>
             <td class="nowrap small">${UI.fmtDate(d.createdAt)}</td>
@@ -285,8 +291,9 @@
         name: document.getElementById("uName").value.trim() || pendingFile.name,
         docType: document.getElementById("uDocType").value,
         discipline: document.getElementById("uDiscipline").value,
+        sheetType: document.getElementById("uSheetType").value,
         rev: document.getElementById("uRev").value.trim(),
-        fileId, pageCount: null, scalePxPerMeter: null, documentId: null,
+        fileId, pageCount: null, scalePxPerMeter: null, scales: {}, documentId: null,
       });
       pendingFile = null;
       UI.closeModal("uploadModal");
@@ -334,11 +341,22 @@
       updateScaleStatus();
     }
 
+    /* 페이지별 축척 (없으면 도면 공통 축척 폴백) */
+    function pageScale() {
+      if (!current) return null;
+      return (current.scales && current.scales[pageNum]) || current.scalePxPerMeter || null;
+    }
+
     function updateScaleStatus() {
       const el = document.getElementById("scaleStatus");
-      if (current && current.scalePxPerMeter) {
-        el.textContent = `축척 보정됨 (1m = ${current.scalePxPerMeter.toFixed(1)}px)`;
+      const own = current && current.scales && current.scales[pageNum];
+      const ppm = pageScale();
+      if (own) {
+        el.textContent = `p.${pageNum} 축척 보정됨 (1m = ${own.toFixed(1)}px)`;
         el.style.color = "var(--c-success)";
+      } else if (ppm) {
+        el.textContent = `공통 축척 사용 중 (1m = ${ppm.toFixed(1)}px) — 이 페이지 축척이 다르면 재보정`;
+        el.style.color = "var(--c-info)";
       } else {
         el.textContent = "축척 미보정 — 측정 전 ① 축척 보정 필요";
         el.style.color = "var(--c-warn)";
@@ -409,7 +427,7 @@
     document.querySelectorAll(".mode-btn").forEach((b) =>
       b.addEventListener("click", () => {
         if ((b.dataset.mode === "area" || b.dataset.mode === "length") &&
-            current && !current.scalePxPerMeter) {
+            current && !pageScale()) {
           UI.toast("먼저 축척 보정을 하세요. (① 축척 보정 → 치수선 두 점 클릭)", "error");
         }
         setMode(b.dataset.mode);
@@ -429,10 +447,14 @@
         const ppm = Measure.calibrate(draft[0], draft[1], meters);
         draft = [];
         if (!ppm) { UI.toast("올바른 숫자를 입력하세요.", "error"); drawOverlay(); return; }
-        Store.update("drawings", current.id, { scalePxPerMeter: ppm });
+        const scales = { ...(current.scales || {}), [pageNum]: ppm };
+        Store.update("drawings", current.id, {
+          scales,
+          scalePxPerMeter: current.scalePxPerMeter || ppm, // 공통 폴백은 최초 보정값 유지
+        });
         current = Store.get("drawings", current.id);
         updateScaleStatus();
-        UI.toast(`축척 보정 완료: 1m = ${ppm.toFixed(1)}px. 이제 면적·길이를 측정하세요.`, "success");
+        UI.toast(`p.${pageNum} 축척 보정 완료: 1m = ${ppm.toFixed(1)}px. 이제 면적·길이를 측정하세요.`, "success");
         setMode("area");
         return;
       }
@@ -450,7 +472,7 @@
     });
 
     function finishMeasure(kind) {
-      if (!current.scalePxPerMeter) {
+      if (!pageScale()) {
         UI.toast("축척 보정이 필요합니다.", "error");
         draft = []; drawOverlay(); return;
       }
@@ -460,7 +482,7 @@
         if (Measure.dist(a, b) < 3) draft.pop();
       }
       const label = prompt(`측정 라벨을 입력하세요. (예: 101호 거실)`) || `측정 ${Store.list("measurements").length + 1}`;
-      const ppm = current.scalePxPerMeter;
+      const ppm = pageScale();
       const value = kind === "면적" ? Measure.areaSqMeters(draft, ppm) : Measure.lengthMeters(draft, ppm);
       Store.add("measurements", {
         drawingId: current.id, page: pageNum, label, kind,

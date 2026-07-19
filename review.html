@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>도면 검토 세션 — 공무 플랫폼</title>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/print.css">
+  <style>
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+    @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+    .pane-stage {
+      position: relative; overflow: auto; max-height: 480px;
+      background: var(--c-neutral-soft); border: 1px solid var(--c-border);
+      border-radius: var(--radius);
+    }
+    .pane-stage canvas { display: block; }
+    .pane-stage .pin-canvas { position: absolute; left: 0; top: 0; }
+    .pane-stage.pin-mode .pin-canvas { cursor: crosshair; }
+    .pane-toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-1); align-items: center; margin-bottom: var(--sp-2); }
+    .sev-경미 { color: var(--c-text-sub); }
+    .sev-중요 { color: var(--c-warn); font-weight: 700; }
+    .sev-치명 { color: var(--c-danger); font-weight: 700; }
+    .wt-diff td { background: var(--c-danger-soft); }
+    .matrix-row td:first-child { white-space: nowrap; font-weight: 700; }
+  </style>
+</head>
+<body class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" data-menu-toggle>☰</button>
+      <h1>도면 검토 세션</h1>
+      <span class="sub">대조 매트릭스로 도면 간 불일치를 발견·기록</span>
+      <span class="spacer"></span>
+      <button class="btn hidden" id="btnRfiDoc">문서대장 발신 등록</button>
+      <button class="btn hidden" id="btnPrintRfi" onclick="window.print()">RFI 질의서 인쇄</button>
+      <button class="btn primary" id="btnNewSession">+ 세션 만들기</button>
+    </div>
+    <div class="content">
+      <!-- RFI 인쇄 -->
+      <div class="print-only">
+        <div class="print-header">
+          <div>
+            <div class="print-title">설 계 질 의 서</div>
+            <div class="print-sub" id="printSub"></div>
+          </div>
+          <table class="approval">
+            <tr><th>담당</th><th>팀장</th><th>부장</th></tr>
+            <tr><td></td><td></td><td></td></tr>
+          </table>
+        </div>
+        <div id="printRfiBody"></div>
+      </div>
+
+      <div class="card no-print" id="sessionListCard">
+        <div class="card-head"><h2>📁 세션 목록</h2></div>
+        <div class="card-body" id="sessionList"></div>
+      </div>
+
+      <div class="hidden no-print" id="workspace">
+        <div class="card mt-4">
+          <div class="card-head">
+            <h2 id="wsTitle"></h2>
+            <span class="spacer"></span>
+            <select class="select" id="wsStatus"><option>진행중</option><option>완료</option></select>
+            <button class="btn sm" id="btnCloseWs">목록으로</button>
+          </div>
+          <div class="card-body">
+            <!-- 대조 매트릭스 -->
+            <div class="section">
+              <div class="section-title">대조 매트릭스 (C1~C8) — 순서대로 확인하면 불일치는 우연이 아니라 절차로 발견됩니다</div>
+              <div class="table-wrap"><table class="table"><tbody id="matrixRows"></tbody></table></div>
+            </div>
+
+            <!-- 분할 뷰 -->
+            <div class="section">
+              <div class="section-title flex">분할 뷰
+                <label class="small flex" style="font-weight:400"><input type="checkbox" id="syncScroll" checked> 동기 스크롤</label>
+                <span class="small muted" style="font-weight:400">핀 모드에서 도면 클릭 = 불일치 위치 기록</span>
+              </div>
+              <div class="split">
+                <div>
+                  <div class="pane-toolbar">
+                    <span class="badge navy">A</span>
+                    <select class="select" id="selA" style="max-width:190px"></select>
+                    <button class="btn sm" data-nav="A:-1">◀</button>
+                    <span class="small nowrap" id="pageA">-</span>
+                    <button class="btn sm" data-nav="A:1">▶</button>
+                    <button class="btn sm" data-zoom="A:0.8">－</button>
+                    <button class="btn sm" data-zoom="A:1.25">＋</button>
+                    <button class="btn sm" id="pinBtnA">📌 핀</button>
+                  </div>
+                  <div class="pane-stage" id="stageA">
+                    <canvas id="pdfA"></canvas><canvas class="pin-canvas" id="pinA"></canvas>
+                  </div>
+                </div>
+                <div>
+                  <div class="pane-toolbar">
+                    <span class="badge blue">B</span>
+                    <select class="select" id="selB" style="max-width:190px"></select>
+                    <button class="btn sm" data-nav="B:-1">◀</button>
+                    <span class="small nowrap" id="pageB">-</span>
+                    <button class="btn sm" data-nav="B:1">▶</button>
+                    <button class="btn sm" data-zoom="B:0.8">－</button>
+                    <button class="btn sm" data-zoom="B:1.25">＋</button>
+                    <button class="btn sm" id="pinBtnB">📌 핀</button>
+                  </div>
+                  <div class="pane-stage" id="stageB">
+                    <canvas id="pdfB"></canvas><canvas class="pin-canvas" id="pinB"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 창호 수량 대조표 -->
+            <div class="section">
+              <div class="section-title flex">창호 수량 대조표 (C1 보조)
+                <button class="btn sm" id="btnWtAdd" style="font-weight:400">+ 행 추가</button>
+              </div>
+              <div class="table-wrap"><table class="table">
+                <thead><tr><th>기호</th><th>일람표 수량</th><th>평면 카운트</th><th>판정</th><th></th></tr></thead>
+                <tbody id="wtRows"></tbody>
+              </table></div>
+            </div>
+
+            <!-- 불일치 목록 -->
+            <div class="section">
+              <div class="section-title flex">불일치 기록
+                <button class="btn sm primary" id="btnNewDisc" style="font-weight:400">+ 직접 추가</button>
+              </div>
+              <div id="discList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 세션 생성 모달 -->
+  <div class="modal-backdrop" id="sessionModal">
+    <div class="modal">
+      <div class="modal-head"><h3>검토 세션 만들기</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label>세션명 <span class="req">*</span></label>
+            <input class="input" id="sName" placeholder="예: 가온아파트 변경1차 검토"></div>
+          <div class="field"><label>현장</label><select class="select" id="sSite"></select></div>
+        </div>
+        <div class="field"><label>검토 대상 도면 (복수 선택)</label>
+          <div id="sDrawings" style="max-height:180px;overflow-y:auto;border:1px solid var(--c-border);border-radius:var(--radius-sm);padding:var(--sp-2)"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnSessionSave">세션 생성</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 불일치 모달 -->
+  <div class="modal-backdrop" id="discModal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="discTitle">불일치 기록</h3><button class="modal-close" data-close>×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label>대조 항목</label><select class="select" id="dCode"></select></div>
+          <div class="field"><label>심각도</label>
+            <select class="select" id="dSeverity"><option>경미</option><option selected>중요</option><option>치명</option></select></div>
+          <div class="field"><label>상태</label>
+            <select class="select" id="dStatus"><option>발견</option><option>질의</option><option>회신</option><option>반영확인</option></select></div>
+        </div>
+        <div class="field"><label>요약 <span class="req">*</span></label>
+          <input class="input" id="dTitleInput" placeholder="예: W3 수량 — 일람표 12EA vs 평면 10EA"></div>
+        <div class="field"><label>상세 설명</label>
+          <textarea class="textarea" id="dDesc" placeholder="위치·수치·근거를 구체적으로. 질의서에 그대로 실립니다."></textarea></div>
+        <p class="small muted" id="dPinInfo"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger hidden" id="btnDiscDelete">삭제</button>
+        <span class="grow"></span>
+        <button class="btn" data-close>취소</button>
+        <button class="btn primary" id="btnDiscSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/files.js"></script>
+  <script>
+    UI.init("review", "도면 검토 세션");
+    UI.bindModalClose();
+
+    /* pdf.js 워커 (drawings.html과 동일: blob URL) */
+    let workerReady = null;
+    if (typeof pdfjsLib !== "undefined") {
+      workerReady = fetch("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js")
+        .then((r) => r.text())
+        .then((code) => {
+          pdfjsLib.GlobalWorkerOptions.workerSrc =
+            URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+        })
+        .catch(() => UI.toast("PDF 워커를 불러오지 못했습니다.", "error"));
+    } else {
+      UI.toast("PDF 라이브러리(pdf.js)를 불러오지 못했습니다. 도면 표시가 제한됩니다.", "error");
+    }
+
+    const CHECKS = {
+      C1: { label: "창호일람표 ↔ 평면도", hint: "기호(W/D)별 수량·크기 — 아래 대조표 활용" },
+      C2: { label: "창호일람표 ↔ 입면도", hint: "창 형상·분할·개폐방식" },
+      C3: { label: "평면도 ↔ 입면도", hint: "개구부 위치·폭, 층고·레벨(FL/SL)" },
+      C4: { label: "평면도 ↔ 인테리어", hint: "실 구획·문 위치·전개도 치수" },
+      C5: { label: "마감표 ↔ 인테리어", hint: "실별 바닥/벽/천장 마감재" },
+      C6: { label: "치수 자체 검산", hint: "부분 치수 합=전체, 면적표=실측정" },
+      C7: { label: "구조 ↔ 건축", hint: "기둥·벽 위치, 개구부 반영" },
+      C8: { label: "차수 간 변경 반영", hint: "변경 도면이 전 도면에 반영됐는지 — 오버레이 비교는 도면 검토·측정 화면" },
+    };
+    const CHECK_STATES = ["미검토", "이상없음", "불일치"];
+
+    let session = null;          // 현재 세션
+    let editingDiscId = null;
+    let pendingPin = null;       // { side, drawingId, page, pin:{x,y} }
+    const pane = {
+      A: { doc: null, drawingId: null, page: 1, zoom: 1.0, pinMode: false },
+      B: { doc: null, drawingId: null, page: 1, zoom: 1.0, pinMode: false },
+    };
+
+    /* ---------- 세션 목록 ---------- */
+    function renderSessionList() {
+      const list = Store.list("reviewSessions")
+        .sort((a, b) => (b.createdAt || "") < (a.createdAt || "") ? -1 : 1);
+      const area = document.getElementById("sessionList");
+      if (!list.length) {
+        area.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>
+          <p>검토 세션이 없습니다.<br>도면을 먼저 업로드한 뒤(도면 검토·측정), 세션을 만들어 대조를 시작하세요.</p>
+          <button class="btn primary" onclick="openNewSession()">+ 세션 만들기</button></div>`;
+        return;
+      }
+      area.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>세션명</th><th>현장</th><th>도면</th><th>불일치</th><th>상태</th><th>생성일</th><th></th></tr></thead>
+        <tbody>${list.map((s) => {
+          const discs = Store.list("discrepancies", (d) => d.sessionId === s.id);
+          const critical = discs.filter((d) => d.severity === "치명").length;
+          return `<tr data-open="${s.id}">
+            <td><a href="javascript:void(0)">${UI.esc(s.name)}</a></td>
+            <td>${UI.esc(UI.siteName(s.siteId))}</td>
+            <td class="center">${(s.drawingIds || []).length}</td>
+            <td>${discs.length ? `<span class="badge ${critical ? "red" : "orange"}">${discs.length}건${critical ? ` (치명 ${critical})` : ""}</span>` : '<span class="badge gray">0건</span>'}</td>
+            <td>${UI.badge(s.status)}</td>
+            <td class="nowrap small">${UI.fmtDate(s.createdAt)}</td>
+            <td><button class="btn sm danger" data-del="${s.id}">삭제</button></td>
+          </tr>`;
+        }).join("")}</tbody></table></div>`;
+      area.querySelectorAll("[data-open]").forEach((tr) =>
+        tr.addEventListener("click", () => openWorkspace(tr.dataset.open)));
+      area.querySelectorAll("[data-del]").forEach((btn) =>
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (confirm("세션과 불일치 기록을 삭제할까요?")) {
+            Store.list("discrepancies", (d) => d.sessionId === btn.dataset.del)
+              .forEach((d) => Store.remove("discrepancies", d.id));
+            Store.remove("reviewSessions", btn.dataset.del);
+            renderSessionList();
+          }
+        }));
+    }
+
+    /* ---------- 세션 생성 ---------- */
+    function openNewSession() {
+      const drawings = Store.list("drawings");
+      if (!drawings.length) {
+        UI.toast("먼저 도면 검토·측정 화면에서 도면을 업로드하세요.", "error");
+        return;
+      }
+      document.getElementById("sName").value = "";
+      document.getElementById("sSite").innerHTML = UI.siteOptions("", "현장 없음(공통)");
+      document.getElementById("sDrawings").innerHTML = drawings.map((d) => `
+        <label class="small flex" style="padding:3px 0">
+          <input type="checkbox" value="${d.id}">
+          ${UI.esc(d.name)} ${d.sheetType && d.sheetType !== "기타" ? `<span class="badge blue">${UI.esc(d.sheetType)}</span>` : ""}
+          ${d.rev ? `<span class="muted">${UI.esc(d.rev)}</span>` : ""}
+        </label>`).join("");
+      UI.openModal("sessionModal");
+      document.getElementById("sName").focus();
+    }
+
+    document.getElementById("btnSessionSave").addEventListener("click", () => {
+      const name = document.getElementById("sName").value.trim();
+      if (!name) { UI.toast("세션명을 입력하세요.", "error"); return; }
+      const ids = [...document.querySelectorAll("#sDrawings input:checked")].map((c) => c.value);
+      if (ids.length < 1) { UI.toast("검토 대상 도면을 선택하세요.", "error"); return; }
+      const checks = {};
+      Object.keys(CHECKS).forEach((c) => (checks[c] = "미검토"));
+      const s = Store.add("reviewSessions", {
+        name,
+        siteId: document.getElementById("sSite").value || null,
+        drawingIds: ids,
+        checks,
+        windowTable: [],
+        status: "진행중",
+        documentId: null,
+      });
+      UI.closeModal("sessionModal");
+      renderSessionList();
+      openWorkspace(s.id);
+    });
+
+    /* ---------- 워크스페이스 ---------- */
+    async function openWorkspace(id) {
+      session = Store.get("reviewSessions", id);
+      if (!session) return;
+      document.getElementById("workspace").classList.remove("hidden");
+      document.getElementById("sessionListCard").classList.add("hidden");
+      document.getElementById("btnPrintRfi").classList.remove("hidden");
+      document.getElementById("btnRfiDoc").classList.remove("hidden");
+      document.getElementById("wsTitle").textContent =
+        `${session.name} — ${UI.siteName(session.siteId)}`;
+      document.getElementById("wsStatus").value = session.status || "진행중";
+      renderMatrix();
+      renderWindowTable();
+      renderDiscList();
+      initPanes();
+      updatePrintRfi();
+    }
+
+    document.getElementById("btnCloseWs").addEventListener("click", () => {
+      session = null;
+      document.getElementById("workspace").classList.add("hidden");
+      document.getElementById("sessionListCard").classList.remove("hidden");
+      document.getElementById("btnPrintRfi").classList.add("hidden");
+      document.getElementById("btnRfiDoc").classList.add("hidden");
+      renderSessionList();
+    });
+
+    document.getElementById("wsStatus").addEventListener("change", () => {
+      Store.update("reviewSessions", session.id, { status: document.getElementById("wsStatus").value });
+      session = Store.get("reviewSessions", session.id);
+    });
+
+    /* ---------- 대조 매트릭스 ---------- */
+    function renderMatrix() {
+      const discs = Store.list("discrepancies", (d) => d.sessionId === session.id);
+      document.getElementById("matrixRows").innerHTML = Object.entries(CHECKS).map(([code, c]) => {
+        const n = discs.filter((d) => d.checkCode === code).length;
+        const state = (session.checks || {})[code] || "미검토";
+        return `<tr class="no-hover matrix-row">
+          <td>${code}</td>
+          <td>${UI.esc(c.label)}<br><span class="small muted">${UI.esc(c.hint)}</span></td>
+          <td><select class="select" data-mcheck="${code}" style="width:auto;padding:3px 6px">
+            ${CHECK_STATES.map((s) => `<option ${s === state ? "selected" : ""}>${s}</option>`).join("")}
+          </select></td>
+          <td>${n ? `<span class="badge orange">${n}건</span>` : ""}</td>
+          <td><button class="btn sm" data-mdisc="${code}">불일치 기록</button></td>
+        </tr>`;
+      }).join("");
+      document.querySelectorAll("[data-mcheck]").forEach((sel) =>
+        sel.addEventListener("change", () => {
+          const checks = { ...(session.checks || {}), [sel.dataset.mcheck]: sel.value };
+          Store.update("reviewSessions", session.id, { checks });
+          session = Store.get("reviewSessions", session.id);
+        }));
+      document.querySelectorAll("[data-mdisc]").forEach((btn) =>
+        btn.addEventListener("click", () => { pendingPin = null; openDisc(null, btn.dataset.mdisc); }));
+    }
+
+    /* ---------- 분할 뷰 ---------- */
+    function sessionDrawings() {
+      return (session.drawingIds || []).map((id) => Store.get("drawings", id)).filter(Boolean);
+    }
+
+    function initPanes() {
+      const opts = sessionDrawings().map((d) =>
+        `<option value="${d.id}">${UI.esc(d.name)} ${UI.esc(d.rev || "")}</option>`).join("");
+      document.getElementById("selA").innerHTML = opts;
+      document.getElementById("selB").innerHTML = opts;
+      const ds = sessionDrawings();
+      if (ds[0]) loadPane("A", ds[0].id);
+      if (ds[1] || ds[0]) loadPane("B", (ds[1] || ds[0]).id);
+    }
+
+    async function loadPane(side, drawingId) {
+      if (!drawingId || typeof pdfjsLib === "undefined") return;
+      const p = pane[side];
+      p.drawingId = drawingId;
+      p.page = 1;
+      document.getElementById("sel" + side).value = drawingId;
+      const d = Store.get("drawings", drawingId);
+      const blob = await Files.getFile(d.fileId);
+      if (!blob) { UI.toast("파일을 찾지 못했습니다 (이 브라우저에 저장된 도면이 아닐 수 있음).", "error"); return; }
+      if (workerReady) await workerReady;
+      p.doc = await pdfjsLib.getDocument({ data: await blob.arrayBuffer() }).promise;
+      await renderPane(side);
+    }
+
+    async function renderPane(side) {
+      const p = pane[side];
+      if (!p.doc) return;
+      const page = await p.doc.getPage(p.page);
+      const viewport = page.getViewport({ scale: p.zoom });
+      const canvas = document.getElementById("pdf" + side);
+      const pinCanvas = document.getElementById("pin" + side);
+      canvas.width = pinCanvas.width = viewport.width;
+      canvas.height = pinCanvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport, intent: "print" }).promise;
+      document.getElementById("page" + side).textContent = `${p.page}/${p.doc.numPages}`;
+      drawPins(side);
+    }
+
+    function drawPins(side) {
+      const p = pane[side];
+      const ctx = document.getElementById("pin" + side).getContext("2d");
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      if (!session) return;
+      const discs = Store.list("discrepancies", (d) => d.sessionId === session.id);
+      discs.forEach((d, i) => {
+        [[d.drawingAId, d.pageA, d.pinA], [d.drawingBId, d.pageB, d.pinB]].forEach(([did, pg, pin]) => {
+          if (did === p.drawingId && pg === p.page && pin) {
+            const x = pin.x * p.zoom, y = pin.y * p.zoom;
+            ctx.fillStyle = d.severity === "치명" ? "#d93025" : d.severity === "중요" ? "#d97706" : "#6b7280";
+            ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(String(i + 1), x, y);
+          }
+        });
+      });
+    }
+
+    document.getElementById("selA").addEventListener("change", (e) => loadPane("A", e.target.value));
+    document.getElementById("selB").addEventListener("change", (e) => loadPane("B", e.target.value));
+    document.querySelectorAll("[data-nav]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const [side, delta] = b.dataset.nav.split(":");
+        const p = pane[side];
+        if (!p.doc) return;
+        const next = p.page + parseInt(delta, 10);
+        if (next >= 1 && next <= p.doc.numPages) { p.page = next; renderPane(side); }
+      }));
+    document.querySelectorAll("[data-zoom]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const [side, f] = b.dataset.zoom.split(":");
+        const p = pane[side];
+        p.zoom = Math.min(Math.max(p.zoom * parseFloat(f), 0.4), 4);
+        renderPane(side);
+      }));
+
+    /* 핀 모드 */
+    ["A", "B"].forEach((side) => {
+      document.getElementById("pinBtn" + side).addEventListener("click", () => {
+        pane[side].pinMode = !pane[side].pinMode;
+        document.getElementById("pinBtn" + side).classList.toggle("primary", pane[side].pinMode);
+        document.getElementById("stage" + side).classList.toggle("pin-mode", pane[side].pinMode);
+      });
+      document.getElementById("pin" + side).addEventListener("click", (e) => {
+        const p = pane[side];
+        if (!p.pinMode || !p.drawingId) return;
+        const rect = e.target.getBoundingClientRect();
+        pendingPin = {
+          side, drawingId: p.drawingId, page: p.page,
+          pin: { x: (e.clientX - rect.left) / p.zoom, y: (e.clientY - rect.top) / p.zoom },
+        };
+        openDisc(null, null);
+      });
+    });
+
+    /* 동기 스크롤 */
+    let syncing = false;
+    ["A", "B"].forEach((side) => {
+      document.getElementById("stage" + side).addEventListener("scroll", (e) => {
+        if (!document.getElementById("syncScroll").checked || syncing) return;
+        syncing = true;
+        const other = document.getElementById("stage" + (side === "A" ? "B" : "A"));
+        other.scrollTop = e.target.scrollTop;
+        other.scrollLeft = e.target.scrollLeft;
+        syncing = false;
+      });
+    });
+
+    /* ---------- 창호 수량 대조표 ---------- */
+    function renderWindowTable() {
+      const rows = (session.windowTable || []).map((w, i) => {
+        const diff = w.scheduleQty !== "" && w.planQty !== "" &&
+          Number(w.scheduleQty) !== Number(w.planQty);
+        return `<tr class="no-hover ${diff ? "wt-diff" : ""}">
+          <td><input class="input" data-wt="${i}:code" value="${UI.esc(w.code)}" style="width:90px;padding:4px 8px"></td>
+          <td><input class="input" data-wt="${i}:scheduleQty" type="number" value="${UI.esc(w.scheduleQty)}" style="width:90px;padding:4px 8px"></td>
+          <td><input class="input" data-wt="${i}:planQty" type="number" value="${UI.esc(w.planQty)}" style="width:90px;padding:4px 8px"></td>
+          <td>${w.scheduleQty === "" || w.planQty === "" ? '<span class="muted small">입력 중</span>'
+            : diff ? '<span class="badge red">불일치</span>' : '<span class="badge green">일치</span>'}</td>
+          <td><button class="btn sm ghost" data-wtdel="${i}">×</button></td>
+        </tr>`;
+      }).join("");
+      document.getElementById("wtRows").innerHTML = rows ||
+        `<tr class="no-hover"><td colspan="5" class="muted small center">행을 추가해 창호일람표 수량과 평면 카운트를 대조하세요.</td></tr>`;
+      document.querySelectorAll("[data-wt]").forEach((inp) =>
+        inp.addEventListener("change", () => {
+          const [i, key] = inp.dataset.wt.split(":");
+          session.windowTable[parseInt(i, 10)][key] = inp.value;
+          Store.update("reviewSessions", session.id, { windowTable: session.windowTable });
+          session = Store.get("reviewSessions", session.id);
+          renderWindowTable();
+        }));
+      document.querySelectorAll("[data-wtdel]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          session.windowTable.splice(parseInt(btn.dataset.wtdel, 10), 1);
+          Store.update("reviewSessions", session.id, { windowTable: session.windowTable });
+          session = Store.get("reviewSessions", session.id);
+          renderWindowTable();
+        }));
+    }
+
+    document.getElementById("btnWtAdd").addEventListener("click", () => {
+      session.windowTable = session.windowTable || [];
+      session.windowTable.push({ code: "", scheduleQty: "", planQty: "" });
+      Store.update("reviewSessions", session.id, { windowTable: session.windowTable });
+      session = Store.get("reviewSessions", session.id);
+      renderWindowTable();
+    });
+
+    /* ---------- 불일치 기록 ---------- */
+    function discLocation(d) {
+      const parts = [];
+      if (d.drawingAId) parts.push(`A: ${UI.esc(Store.get("drawings", d.drawingAId)?.name || "-")} p.${d.pageA}`);
+      if (d.drawingBId) parts.push(`B: ${UI.esc(Store.get("drawings", d.drawingBId)?.name || "-")} p.${d.pageB}`);
+      return parts.join(" · ") || "-";
+    }
+
+    function renderDiscList() {
+      const discs = Store.list("discrepancies", (d) => d.sessionId === session.id);
+      const area = document.getElementById("discList");
+      if (!discs.length) {
+        area.innerHTML = `<p class="muted small">기록된 불일치가 없습니다. 매트릭스 행의 [불일치 기록] 또는 분할 뷰의 📌 핀 모드로 추가하세요.</p>`;
+        return;
+      }
+      area.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>#</th><th>구분</th><th>요약</th><th>위치</th><th>심각도</th><th>상태</th></tr></thead>
+        <tbody>${discs.map((d, i) => `
+          <tr data-disc="${d.id}">
+            <td class="center">${i + 1}</td>
+            <td class="nowrap">${d.checkCode}</td>
+            <td>${UI.esc(d.title)}</td>
+            <td class="small">${discLocation(d)}</td>
+            <td class="sev-${d.severity}">${UI.esc(d.severity)}</td>
+            <td><select class="select" data-dstatus="${d.id}" style="width:auto;padding:3px 6px">
+              ${["발견","질의","회신","반영확인"].map((s) => `<option ${s === d.status ? "selected" : ""}>${s}</option>`).join("")}
+            </select></td>
+          </tr>`).join("")}</tbody></table></div>`;
+      area.querySelectorAll("[data-disc]").forEach((tr) =>
+        tr.addEventListener("click", () => openDisc(tr.dataset.disc)));
+      area.querySelectorAll("[data-dstatus]").forEach((sel) => {
+        sel.addEventListener("click", (e) => e.stopPropagation());
+        sel.addEventListener("change", () => {
+          Store.update("discrepancies", sel.dataset.dstatus, { status: sel.value });
+          updatePrintRfi();
+        });
+      });
+    }
+
+    function openDisc(id, presetCode) {
+      editingDiscId = id;
+      const d = id ? Store.get("discrepancies", id) : null;
+      document.getElementById("discTitle").textContent = id ? "불일치 수정" : "불일치 기록";
+      document.getElementById("btnDiscDelete").classList.toggle("hidden", !id);
+      document.getElementById("dCode").innerHTML = Object.entries(CHECKS).map(([code, c]) =>
+        `<option value="${code}" ${(d ? d.checkCode : presetCode) === code ? "selected" : ""}>${code} — ${UI.esc(c.label)}</option>`).join("");
+      document.getElementById("dSeverity").value = d ? d.severity : "중요";
+      document.getElementById("dStatus").value = d ? d.status : "발견";
+      document.getElementById("dTitleInput").value = d ? d.title : "";
+      document.getElementById("dDesc").value = d ? d.description || "" : "";
+      const pinInfo = d
+        ? discLocation(d)
+        : pendingPin
+          ? `📌 핀 위치: ${pendingPin.side}면 ${UI.esc(Store.get("drawings", pendingPin.drawingId)?.name || "")} p.${pendingPin.page}`
+          : "위치 핀 없음 — 분할 뷰의 📌 핀 모드로 위치를 남길 수 있습니다.";
+      document.getElementById("dPinInfo").innerHTML = pinInfo;
+      UI.openModal("discModal");
+      document.getElementById("dTitleInput").focus();
+    }
+
+    document.getElementById("btnDiscSave").addEventListener("click", () => {
+      const title = document.getElementById("dTitleInput").value.trim();
+      if (!title) { UI.toast("요약을 입력하세요.", "error"); return; }
+      const code = document.getElementById("dCode").value;
+      const data = {
+        checkCode: code,
+        title,
+        description: document.getElementById("dDesc").value.trim(),
+        severity: document.getElementById("dSeverity").value,
+        status: document.getElementById("dStatus").value,
+      };
+      if (editingDiscId) {
+        Store.update("discrepancies", editingDiscId, data);
+      } else {
+        Object.assign(data, { sessionId: session.id,
+          drawingAId: null, pageA: null, pinA: null,
+          drawingBId: null, pageB: null, pinB: null });
+        if (pendingPin) {
+          if (pendingPin.side === "A") {
+            data.drawingAId = pendingPin.drawingId; data.pageA = pendingPin.page; data.pinA = pendingPin.pin;
+          } else {
+            data.drawingBId = pendingPin.drawingId; data.pageB = pendingPin.page; data.pinB = pendingPin.pin;
+          }
+        }
+        Store.add("discrepancies", data);
+        // 매트릭스 상태 자동 '불일치'
+        const checks = { ...(session.checks || {}), [code]: "불일치" };
+        Store.update("reviewSessions", session.id, { checks });
+        session = Store.get("reviewSessions", session.id);
+      }
+      pendingPin = null;
+      UI.closeModal("discModal");
+      renderMatrix();
+      renderDiscList();
+      drawPins("A"); drawPins("B");
+      updatePrintRfi();
+      UI.toast("저장했습니다.", "success");
+    });
+
+    document.getElementById("btnDiscDelete").addEventListener("click", () => {
+      if (editingDiscId && confirm("이 불일치 기록을 삭제할까요?")) {
+        Store.remove("discrepancies", editingDiscId);
+        UI.closeModal("discModal");
+        renderMatrix(); renderDiscList();
+        drawPins("A"); drawPins("B");
+        updatePrintRfi();
+      }
+    });
+
+    document.getElementById("btnNewDisc").addEventListener("click", () => { pendingPin = null; openDisc(null); });
+
+    /* ---------- RFI 질의서 ---------- */
+    function updatePrintRfi() {
+      if (!session) return;
+      const meta = Store.getMeta();
+      document.getElementById("printSub").textContent =
+        `현장: ${UI.siteName(session.siteId)} · 검토: ${session.name} · 작성: 공사부 공무팀 ${meta.ownerRank || ""} ${meta.owner || ""} · ${UI.todayStr()}`;
+      const discs = Store.list("discrepancies", (d) => d.sessionId === session.id);
+      document.getElementById("printRfiBody").innerHTML = `
+        <p style="margin:4mm 0">아래 도면 검토 결과에 대하여 확인 및 회신을 요청드립니다.</p>
+        <table class="table" style="width:100%">
+          <thead><tr><th style="width:8mm">번호</th><th style="width:30mm">구분</th><th>질의 내용</th>
+            <th style="width:38mm">관련 도면</th><th style="width:14mm">중요도</th><th style="width:30mm">회신</th></tr></thead>
+          <tbody>${discs.map((d, i) => `
+            <tr>
+              <td class="center">${i + 1}</td>
+              <td>${d.checkCode} ${UI.esc((CHECKS[d.checkCode] || {}).label || "")}</td>
+              <td>${UI.esc(d.title)}${d.description ? `<br><span class="small">${UI.esc(d.description)}</span>` : ""}</td>
+              <td class="small">${discLocation(d)}</td>
+              <td class="center">${UI.esc(d.severity)}</td>
+              <td></td>
+            </tr>`).join("") || `<tr><td colspan="6" class="center">기록된 질의 없음</td></tr>`}</tbody>
+        </table>`;
+    }
+
+    document.getElementById("btnRfiDoc").addEventListener("click", () => {
+      if (!session) return;
+      const discs = Store.list("discrepancies", (d) => d.sessionId === session.id);
+      if (!discs.length) { UI.toast("기록된 불일치가 없습니다.", "error"); return; }
+      if (session.documentId && Store.get("documents", session.documentId)) {
+        UI.toast("이미 문서대장에 등록된 질의서가 있습니다.", "error"); return;
+      }
+      const doc = Store.add("documents", {
+        direction: "발신",
+        docNo: "",
+        date: UI.todayStr(),
+        title: `설계 질의서 — ${session.name} (${discs.length}건)`,
+        counterpart: "설계사무소",
+        docType: "공문",
+        status: "회신대기",
+        dueDate: UI.addDays(UI.todayStr(), 7),
+        siteId: session.siteId,
+        ownerId: null,
+        memo: "도면 검토 세션에서 자동 등록",
+      });
+      Store.update("reviewSessions", session.id, { documentId: doc.id });
+      session = Store.get("reviewSessions", session.id);
+      Store.list("discrepancies", (d) => d.sessionId === session.id && d.status === "발견")
+        .forEach((d) => Store.update("discrepancies", d.id, { status: "질의" }));
+      renderDiscList();
+      UI.toast("문서대장에 발신(회신대기, 기한 7일)으로 등록했습니다. 문서번호는 대장에서 부여하세요.", "success");
+    });
+
+    document.getElementById("btnNewSession").addEventListener("click", openNewSession);
+    renderSessionList();
+  </script>
+</body>
+</html>

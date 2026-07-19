@@ -7,17 +7,18 @@
 
 const Store = (() => {
   const KEY = "dujon.db";
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
   const COLLECTIONS = [
     "sites", "people", "tasks", "documents",
     "events", "reports", "drawings", "measurements",
     "checklistTemplates", "siteChecklists", "subcontracts", // v2
+    "reviewSessions", "discrepancies", // v3
   ];
 
   function emptyDB() {
     const db = {
       schemaVersion: SCHEMA_VERSION,
-      meta: { appVersion: "0.2.0", owner: "", ownerRank: "", kakaoKey: "", exportedAt: null },
+      meta: { appVersion: "0.3.0", owner: "", ownerRank: "", kakaoKey: "", exportedAt: null },
     };
     COLLECTIONS.forEach((c) => (db[c] = []));
     return db;
@@ -32,6 +33,13 @@ const Store = (() => {
       db.siteChecklists = db.siteChecklists || [];
       db.subcontracts = db.subcontracts || [];
       db.schemaVersion = 2;
+    }
+    if (db.schemaVersion === 2) {
+      // v2 → v3: 도면 검토 컬렉션 + Drawing.scales(페이지별 축척)
+      db.reviewSessions = db.reviewSessions || [];
+      db.discrepancies = db.discrepancies || [];
+      (db.drawings || []).forEach((d) => { if (!d.scales) d.scales = {}; });
+      db.schemaVersion = 3;
     }
     COLLECTIONS.forEach((c) => { if (!Array.isArray(db[c])) db[c] = []; });
     if (!db.meta) db.meta = emptyDB().meta;

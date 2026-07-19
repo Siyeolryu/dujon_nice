@@ -7,15 +7,18 @@
 
 ```js
 {
-  schemaVersion: 2,
-  meta: { appVersion: "0.2.0", owner: "", ownerRank: "", exportedAt: null },
+  schemaVersion: 3,
+  meta: { appVersion: "0.3.0", owner: "", ownerRank: "", exportedAt: null },
   sites: [], people: [], tasks: [], documents: [],
   events: [], reports: [], drawings: [], measurements: [],
-  checklistTemplates: [], siteChecklists: [], subcontracts: []   // v2 추가
+  checklistTemplates: [], siteChecklists: [], subcontracts: [],  // v2 추가
+  reviewSessions: [], discrepancies: []                          // v3 추가
 }
 ```
 
-**v1 → v2 마이그레이션**: 세 컬렉션을 빈 배열로 추가. 기존 데이터 무변경.
+**v1 → v2**: 체크리스트·하도급 컬렉션 추가. 기존 데이터 무변경.
+**v2 → v3**: 도면 검토 컬렉션 추가 + Drawing에 `sheetType`(선택)·`scales`(페이지별 축척 맵) 도입.
+기존 `scalePxPerMeter`는 전 페이지 공통 폴백으로 유지.
 
 공통 필드: 모든 엔티티는 `id`(uuid), `createdAt`, `updatedAt`(ISO 8601)을 가진다.
 
@@ -104,6 +107,34 @@
 | documentId | uuid | 문서대장 연결 (선택) |
 
 **주의: PDF 원본 blob은 dujon.db가 아니라 IndexedDB(`dujon-files`)에 저장한다.**
+
+v3 추가 필드:
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| sheetType | enum | `평면도` `입면도` `단면도` `인테리어` `창호일람표` `마감표` `기타` (선택 — 대조 매트릭스 안내에 사용) |
+| scales | object | 페이지별 축척 `{ "1": pxPerMeter, ... }` — 측정 시 `scales[page] ?? scalePxPerMeter` |
+
+### ReviewSession (도면 검토 세션) — v3
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| siteId | uuid | 현장 |
+| name | string | 예: "가온아파트 변경1차 검토" |
+| drawingIds | uuid[] | 검토 대상 도면 |
+| checks | object | 대조 매트릭스 상태 `{ C1: "미검토"/"이상없음"/"불일치", ... C8 }` |
+| windowTable | array | 창호 수량 대조표 `{ code, scheduleQty(일람표), planQty(평면 카운트) }` |
+| status | enum | `진행중` `완료` |
+| documentId | uuid | RFI 질의서 문서대장 연결 (선택) |
+
+### Discrepancy (불일치 기록) — v3
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| sessionId | uuid | 검토 세션 |
+| checkCode | enum | `C1`~`C8` (대조 매트릭스 항목) |
+| title / description | string | 요약 / 상세 |
+| severity | enum | `경미` `중요` `치명` |
+| status | enum | `발견` `질의` `회신` `반영확인` |
+| drawingAId / pageA / pinA | uuid/number/{x,y} | 도면 A 위치 핀 (기준배율 px) |
+| drawingBId / pageB / pinB | uuid/number/{x,y} | 도면 B 위치 핀 (선택) |
 
 ### Measurement (측정 결과)
 | 필드 | 타입 | 설명 |
